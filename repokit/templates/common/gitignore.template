@@ -138,10 +138,3 @@ credentials.json
 #######################
 
 # Add custom patterns below
-
-# Private content
-/private/
-/convos/
-/logs/
-**/__private__*
-

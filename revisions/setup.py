@@ -9,7 +9,7 @@ setup(
     install_requires=[],
     entry_points={
         'console_scripts': [
-            'repokit=repokit.cli:main',
+            'repokit=cli:main',
         ],
     },
     python_requires='>=3.6',
