@@ -208,8 +208,8 @@ class RepoManager:
         # Create branches
         branches = self.config.get('branches', ['main', 'dev', 'staging', 'test', 'live'])
         
-        # Ensure main branch exists (might be called master in some cases)
-        default_branch = 'main'
+        # Ensure the configured default branch exists
+        default_branch = self.config.get('default_branch', 'main')
         current_branch = self.run_git(["branch", "--show-current"], cwd=self.repo_root)
         
         if current_branch != default_branch:
@@ -235,10 +235,10 @@ class RepoManager:
         self.logger.info("Setting up worktrees")
         
         # Get branches to create worktrees for
-        worktree_branches = self.config.get('worktrees', ['main', 'dev'])
-        
-        # Always add GitHub directory as worktree with main branch if main is in worktree list
-        main_branch = 'main'
+        worktree_branches = self.config.get('worktrees', [self.config.get('default_branch', 'main'), 'dev'])
+
+        # Always add GitHub directory as worktree with the default branch if it’s in the list
+        main_branch = self.config.get('default_branch', 'main')
         if main_branch in worktree_branches:
             # Get directory name for main branch from branch_config
             github_dir = self.config.get('branch_config', {}).get('branch_directories', {}).get(main_branch, 'github')

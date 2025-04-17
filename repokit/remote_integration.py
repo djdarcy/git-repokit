@@ -71,15 +71,15 @@ class RemoteIntegration:
             "Accept": "application/vnd.github.v3+json"
         }
         
+        default_branch = self.repo_manager.config.get("default_branch", "main")
         data = {
             "name": repo_name,
             "description": description,
             "private": private,
-            "auto_init": False,  # Don't initialize with README
-            # Explicitly set default branch to main
-            "default_branch": "main"
+            "auto_init": False,      # Don't initialize with README
+            "default_branch": default_branch
         }
-        
+
         # API endpoint - either user repos or organization repos
         if organization:
             url = f"{api_url}/orgs/{organization}/repos"

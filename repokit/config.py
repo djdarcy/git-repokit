@@ -39,6 +39,7 @@ class ConfigManager:
             "name": "my-project",
             "description": "A new project repository",
             "language": "generic",
+            "default_branch": "main",
             "branches": ["main", "dev", "staging", "test", "live"],
             "worktrees": ["main", "dev"],
             "directories": [
@@ -146,7 +147,11 @@ class ConfigManager:
             
             if "private_branch" not in self.cli_config:
                 self.config["private_branch"] = strategy.get("private_branch", "private")
-            
+
+            # Ensure default_branch aligns
+            if "default_branch" not in self.cli_config:
+                self.config["default_branch"] = self.config.get("default_branch", "main")
+				
             if self.verbose >= 1:
                 self.logger.info(f"Applied branch strategy '{strategy_name}'")
 
