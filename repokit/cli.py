@@ -81,6 +81,12 @@ def parse_arguments() -> argparse.Namespace:
         "--private-branch",
         help="Name of the private branch (default: private)"
     )
+
+    # Default branch override
+    parser.add_argument(
+        "--default-branch",
+        help="Name of the default branch (default: main)"
+    )
     
     # Branch strategy options
     parser.add_argument(
@@ -303,6 +309,10 @@ def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:
     
     if branch_directories:
         cli_config["branch_config"] = {"branch_directories": branch_directories}
+
+    # default branch from CLI
+    if args.default_branch:
+        cli_config["default_branch"] = args.default_branch
     
     # Remove None values from config
     return {k: v for k, v in cli_config.items() if v is not None}
