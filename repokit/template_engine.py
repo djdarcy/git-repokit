@@ -8,7 +8,7 @@ Handles loading and rendering templates from the package's template directory.
 import os
 import logging
 import string
-import pkg_resources
+import importlib.resources as resources
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
 
@@ -37,11 +37,15 @@ class TemplateEngine:
         if templates_dir:
             self.templates_dirs.append(templates_dir)
         
-        # 2. Try to find templates in the package
+        # 2. Try to find templates in the package via importlib.resources
         try:
-            pkg_templates = pkg_resources.resource_filename("repokit", "templates")
-            self.templates_dirs.append(pkg_templates)
-        except (ImportError, pkg_resources.DistributionNotFound):
+            pkg_templates = resources.files("repokit").joinpath("templates")
+            # resources.as_file will give us a real filesystem path
+            with resources.as_file(pkg_templates) as tpl_path:
+                self.templates_dirs.append(str(tpl_path))
+        except (ImportError, FileNotFoundError):
+            # either stdlib importlib.resources is missing (very old Python)
+            # or the package isn’t installed with that resource
             pass
         
         # 3. Check current script directory

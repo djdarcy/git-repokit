@@ -2,9 +2,9 @@ from setuptools import setup, find_packages
 
 setup(
     name="repokit",
-    version="0.1.0",
+    version="0.1.1",
     description="Repository Template Generator",
-    author="Your Name",
+    author="Dustin Darcy",
     packages=find_packages(),
     install_requires=[],
     entry_points={
