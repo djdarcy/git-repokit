@@ -110,6 +110,9 @@ class RepoManager:
             # This is the key change - moved worktree setup to the end
             self._setup_worktrees()
             
+            # Set up local exclude patterns for branch-conditional ignoring
+            self._setup_local_excludes()
+            
             # Set up GitHub integration (copy files to GitHub worktree)
             self._setup_github_integration()
             
@@ -305,7 +308,8 @@ class RepoManager:
             'language': language,
             'description': self.config.get('description', ''),
             'author': self.config.get('user', {}).get('name', ''),
-            'author_email': self.config.get('user', {}).get('email', '')
+            'author_email': self.config.get('user', {}).get('email', ''),
+            'badges': self._generate_badges(language)
         }
         
         # Create .github directory
@@ -534,6 +538,135 @@ exit 0
         # Make hook executable on Unix-like systems
         if os.name != 'nt':  # not Windows
             os.chmod(pre_commit_path, 0o755)
+    
+    def _setup_local_excludes(self) -> None:
+        """Set up local exclude patterns for branch-conditional file ignoring."""
+        self.logger.info("Setting up local exclude patterns")
+        
+        # Path to local exclude file
+        exclude_file = os.path.join(self.repo_root, ".git", "info", "exclude")
+        
+        # Ensure the info directory exists
+        os.makedirs(os.path.dirname(exclude_file), exist_ok=True)
+        
+        # Define patterns for files that should be tracked in private but ignored in public branches
+        exclude_patterns = [
+            "# RepoKit: Branch-conditional excludes",
+            "# These files are tracked in 'private' branch but ignored in public branches",
+            "",
+            "# AI integration files",
+            "CLAUDE.md",
+            "",
+            "# Development conversation logs", 
+            "private/claude/",
+            "",
+            "# Private development documentation",
+            "private/docs/",
+            "",
+            "# Development notes and temporary files", 
+            "private/notes/",
+            "private/temp/",
+            ""
+        ]
+        
+        # Read existing exclude file if it exists
+        existing_content = []
+        if os.path.exists(exclude_file):
+            with open(exclude_file, 'r') as f:
+                existing_content = f.read().splitlines()
+        
+        # Check if our patterns are already present
+        repokit_marker = "# RepoKit: Branch-conditional excludes"
+        if repokit_marker not in existing_content:
+            # Append our patterns
+            with open(exclude_file, 'a') as f:
+                if existing_content and not existing_content[-1].strip() == "":
+                    f.write("\n")  # Add spacing if file has content
+                f.write("\n".join(exclude_patterns))
+            
+            self.logger.info("Added branch-conditional exclude patterns")
+        else:
+            self.logger.debug("Local exclude patterns already configured")
+        
+        # Set up local excludes for worktrees as well
+        self._setup_worktree_excludes()
+    
+    def _setup_worktree_excludes(self) -> None:
+        """Set up local exclude patterns for all worktrees."""
+        # Get list of worktrees
+        try:
+            worktree_output = self.run_git(["worktree", "list"], cwd=self.repo_root, check=False)
+            if not worktree_output:
+                return
+            
+            # Parse worktree paths
+            for line in worktree_output.split('\n'):
+                if not line.strip():
+                    continue
+                
+                # Parse worktree line (format: "/path/to/worktree  abcd1234 [branch]")
+                parts = line.split()
+                if len(parts) >= 3 and '[' in parts[2] and ']' in parts[2]:
+                    worktree_path = parts[0]
+                    branch = parts[2].strip('[]')
+                    
+                    # Skip private branch worktree
+                    if branch == self.config.get('private_branch', 'private'):
+                        continue
+                    
+                    # Set up exclude file for this worktree
+                    exclude_file = os.path.join(worktree_path, ".git", "info", "exclude")
+                    
+                    # Worktrees have .git as a file, not directory
+                    git_dir_file = os.path.join(worktree_path, ".git")
+                    if os.path.isfile(git_dir_file):
+                        # Read the git directory path from .git file
+                        with open(git_dir_file, 'r') as f:
+                            git_dir_line = f.read().strip()
+                            if git_dir_line.startswith('gitdir: '):
+                                git_dir = git_dir_line[8:]  # Remove 'gitdir: ' prefix
+                                exclude_file = os.path.join(git_dir, "info", "exclude")
+                    
+                    # Ensure directory exists
+                    os.makedirs(os.path.dirname(exclude_file), exist_ok=True)
+                    
+                    # Same exclude patterns for worktrees
+                    exclude_patterns = [
+                        "# RepoKit: Branch-conditional excludes for worktree",
+                        "# These files are tracked in 'private' branch but ignored in public branches",
+                        "",
+                        "# AI integration files",
+                        "CLAUDE.md", 
+                        "",
+                        "# Development conversation logs",
+                        "private/claude/",
+                        "",
+                        "# Private development documentation", 
+                        "private/docs/",
+                        "",
+                        "# Development notes and temporary files",
+                        "private/notes/",
+                        "private/temp/",
+                        ""
+                    ]
+                    
+                    # Check if already configured
+                    existing_content = []
+                    if os.path.exists(exclude_file):
+                        with open(exclude_file, 'r') as f:
+                            existing_content = f.read().splitlines()
+                    
+                    repokit_marker = "# RepoKit: Branch-conditional excludes for worktree"
+                    if repokit_marker not in existing_content:
+                        with open(exclude_file, 'a') as f:
+                            if existing_content and not existing_content[-1].strip() == "":
+                                f.write("\n")
+                            f.write("\n".join(exclude_patterns))
+                        
+                        self.logger.debug(f"Added exclude patterns for worktree: {worktree_path}")
+                        
+        except Exception as e:
+            self.logger.warning(f"Failed to set up worktree excludes: {str(e)}")
     
     def _create_initial_commit(self) -> None:
         """Create initial commit in repository."""
@@ -975,3 +1108,71 @@ exit 0
             'generic': '# Add your build command here'
         }
         return commands.get(language, commands['generic'])
+    
+    def _generate_badges(self, language: str) -> str:
+        """Generate GitHub workflow badges based on language and configuration."""
+        # Get GitHub username from config if available
+        github_user = self.config.get('github', {}).get('username', 'YOUR_GITHUB_USERNAME')
+        
+        # Base badges
+        badges = []
+        badge_links = []
+        
+        # Workflow status badge
+        badges.append("[![GitHub Workflow Status][workflow-badge]][workflow-url]")
+        badge_links.extend([
+            f"[workflow-badge]: https://github.com/{github_user}/{self.project_name}/actions/workflows/main.yml/badge.svg",
+            f"[workflow-url]: https://github.com/{github_user}/{self.project_name}/actions"
+        ])
+        
+        # Version badge
+        badges.append("[![Version][version-badge]][version-url]")
+        badge_links.extend([
+            "[version-badge]: https://img.shields.io/badge/version-1.0.0-blue",
+            f"[version-url]: https://github.com/{github_user}/{self.project_name}/releases"
+        ])
+        
+        # Language-specific badges
+        if language == 'python':
+            badges.append("[![Python][python-badge]][python-url]")
+            badge_links.extend([
+                "[python-badge]: https://img.shields.io/badge/python-%3E%3D3.7-darkgreen",
+                "[python-url]: https://python.org/downloads"
+            ])
+        elif language == 'javascript':
+            badges.append("[![Node][node-badge]][node-url]")
+            badge_links.extend([
+                "[node-badge]: https://img.shields.io/badge/node-%3E%3D14.0.0-darkgreen",
+                "[node-url]: https://nodejs.org/en/download"
+            ])
+        elif language == 'java':
+            badges.append("[![Java][java-badge]][java-url]")
+            badge_links.extend([
+                "[java-badge]: https://img.shields.io/badge/java-%3E%3D11-darkgreen",
+                "[java-url]: https://openjdk.java.net"
+            ])
+        else:
+            badges.append("[![Build][build-badge]][build-url]")
+            badge_links.extend([
+                "[build-badge]: https://img.shields.io/badge/build-passing-brightgreen",
+                f"[build-url]: https://github.com/{github_user}/{self.project_name}/actions"
+            ])
+        
+        # License badge
+        badges.append("[![License][license-badge]][license-url]")
+        badge_links.extend([
+            "[license-badge]: https://img.shields.io/badge/license-MIT-orange",
+            f"[license-url]: https://github.com/{github_user}/{self.project_name}/blob/main/LICENSE"
+        ])
+        
+        # Discussions badge
+        badges.append("[![GitHub Discussions][discussions-badge]][discussions-url]")
+        badge_links.extend([
+            "[discussions-badge]: https://img.shields.io/badge/discussions-Welcome-lightgrey",
+            f"[discussions-url]: https://github.com/{github_user}/{self.project_name}/discussions"
+        ])
+        
+        # Combine badges and links
+        badge_section = "\n".join(badges) + "\n\n" + "\n".join(badge_links)
+        
+        return badge_section
