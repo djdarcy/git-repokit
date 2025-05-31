@@ -102,8 +102,17 @@ class RepoKitTestCase(unittest.TestCase):
     
     def setUp(self):
         """Set up test environment."""
-        # Create temporary directory for test
-        self.test_dir = tempfile.mkdtemp(prefix="repokit_test_")
+        # Use organized test run directory if available
+        test_run_dir = os.environ.get('REPOKIT_TEST_RUN_DIR')
+        if test_run_dir and os.path.exists(test_run_dir):
+            # Create test-specific subdirectory within organized test run
+            test_name = self._testMethodName
+            self.test_dir = os.path.join(test_run_dir, f"{self.__class__.__name__}_{test_name}")
+            os.makedirs(self.test_dir, exist_ok=True)
+        else:
+            # Fall back to temporary directory
+            self.test_dir = tempfile.mkdtemp(prefix="repokit_test_")
+            
         self.original_dir = os.getcwd()
         os.chdir(self.test_dir)
         
@@ -115,9 +124,13 @@ class RepoKitTestCase(unittest.TestCase):
         # Return to original directory
         os.chdir(self.original_dir)
         
-        # Clean up temporary directory
-        if os.path.exists(self.test_dir):
-            shutil.rmtree(self.test_dir, ignore_errors=True)
+        # Clean up temporary directory only if it's not an organized test run
+        test_run_dir = os.environ.get('REPOKIT_TEST_RUN_DIR')
+        if not test_run_dir or not self.test_dir.startswith(test_run_dir):
+            # This is a temporary directory, safe to clean up
+            if os.path.exists(self.test_dir):
+                shutil.rmtree(self.test_dir, ignore_errors=True)
+        # If it's an organized test run directory, leave it for the test run manager
             
         # Clean up GitHub repositories if any
         if hasattr(self, 'github_cleanup'):
