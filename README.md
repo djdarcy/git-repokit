@@ -1,146 +1,297 @@
 # RepoKit
 
-RepoKit is a tool for creating standardized Git repositories with complex branching strategies and worktree-based workflows. It automates the setup of consistent repository structures, branch configurations, and GitHub integration.
+RepoKit is an automation tool for creating standardized Git repositories with complex branching strategies, worktree-based workflows, and automated GitHub/GitLab deployment. It provides universal bootstrap capabilities for any project type - from empty directories to complex legacy codebases.
 
 ## Features
 
-- **Standardized Repository Structure**: Creates a consistent directory layout with standard folders
-- **Multi-Branch Strategy**: Automatically sets up main, dev, staging, test, live, and private branches
-- **Worktree Management**: Creates Git worktrees for efficient branch isolation
-- **Private Content Protection**: Prevents private content from being committed/pushed
-- **GitHub Integration**: Generates standard GitHub files (.github directory with workflows, issue templates)
-- **Template Customization**: Supports language-specific templates (Python, JavaScript, etc.)
-- **Configuration System**: Flexible configuration through JSON files and command-line options
+### Core Capabilities
+- **Universal Bootstrap System**: Analyze and migrate ANY project to RepoKit structure
+- **Standardized Repository Structure**: Consistent directory layout with standard folders
+- **Multi-Branch Strategy**: Automatic setup of main, dev, staging, test, live, and private branches
+- **Worktree Management**: Git worktrees for efficient branch isolation and parallel development
+- **Private Content Protection**: Secure local-only content that never gets pushed
+- **GitHub/GitLab Integration**: Automated repository creation and deployment
+- **AI Development Integration**: Built-in Claude AI assistance with workflow documentation
+- **Template Customization**: Language-specific templates (Python, JavaScript, etc.)
+- **Comprehensive Test Framework**: Unit, integration, and end-to-end testing
 
-## Installation
+### Universal Project Support
+- **Empty Projects**: Start fresh with optimal structure
+- **Existing Code**: Preserve your files while adding RepoKit benefits  
+- **Git Repositories**: Maintain full history while upgrading workflow
+- **Complex Projects**: Handle multi-branch, multi-contributor scenarios
+- **Legacy Codebases**: Safe migration with conflict resolution
+
+## 📦 Installation
 
 ```bash
-# Clone the repository
-git clone https://github.com/your-username/repokit.git
-cd repokit
+# Install from source
+git clone https://github.com/djdarcy/git-repokit.git
+cd git-repokit
 
-# Install as a development package
+# Install in development mode with all dependencies
+pip install -e ".[dev]"
+
+# Or install for regular use
 pip install -e .
 ```
 
-## Basic Usage
+## 🎯 Quick Start
+
+### Create a New Project
+```bash
+# Basic project creation
+repokit create my-awesome-project --language python
+
+# Create and deploy to GitHub in one command
+repokit create my-project --language python --publish-to github --private-repo
+
+# Create with AI integration
+repokit create my-project --ai claude --publish-to github
+```
+
+### Adopt an Existing Project
+```bash
+# Analyze what RepoKit will do
+repokit analyze .
+
+# Adopt in-place with safe strategy
+repokit adopt . --publish-to github --private-repo
+
+# Migrate to new structure (creates copy)
+repokit migrate ./old-project ./new-project
+```
+
+## 🔧 Common Use Cases
+
+### 1. Brand New Python Project
+```bash
+# Create project with GitHub deployment
+repokit create awesome-api \
+  --language python \
+  --description "My awesome Python API" \
+  --publish-to github \
+  --private-repo \
+  --ai claude
+```
+
+### 2. Existing Project Migration
+```bash
+# First, analyze your project
+cd existing-project
+repokit analyze .
+
+# Then adopt with recommended settings
+repokit adopt . \
+  --migration-strategy safe \
+  --publish-to github \
+  --organization my-company
+```
+
+### 3. Legacy Project Modernization
+```bash
+# Analyze complex project
+repokit analyze ./legacy-app
+
+# Adopt with careful conflict handling
+repokit adopt ./legacy-app \
+  --strategy safe \
+  --branch-strategy gitflow \
+  --dry-run  # Preview changes first
+```
+
+### 4. Multi-Language Monorepo
+```bash
+# Create with custom structure
+repokit create platform \
+  --language generic \
+  --directories "backend,frontend,shared,docs,infra" \
+  --branches "main,develop,release,hotfix" \
+  --publish-to github
+```
+
+## 📊 Project Analysis
+
+RepoKit can analyze any project and provide migration recommendations:
 
 ```bash
-# Create a new repository
-repokit create my-project --language python
+repokit analyze /path/to/project
 
-# List available templates
-repokit list-templates
-
-# Initialize a configuration file
-repokit init-config
+# Output includes:
+# - Project type (empty, source_no_git, git_with_history, etc.)
+# - Detected primary language
+# - Migration complexity (low/medium/high)
+# - Recommended migration strategy
+# - Recommended branch strategy
+# - Step-by-step migration plan
 ```
 
-## Advanced Usage
+## 🌳 Branch Strategies
 
-### Command-Line Options
+RepoKit supports multiple branching strategies:
+
+### Standard (Default)
+```
+private → dev → main → test → staging → live
+```
+
+### Simple
+```
+private → dev → main
+```
+
+### GitFlow
+```
+private → feature/* → develop → release/* → main
+                  ↘                    ↗
+                    hotfix/* →  →  → ↗
+```
+
+### GitHub Flow
+```
+private → feature/* → main
+```
+
+### Custom
+```bash
+repokit create my-project \
+  --branches "main,develop,qa,production" \
+  --worktrees "main,develop"
+```
+
+## 🔐 GitHub/GitLab Integration
+
+### Initial Setup
+```bash
+# Store GitHub credentials (one time)
+repokit store-credentials --publish-to github --token YOUR_TOKEN
+
+# Or use environment variable
+export GITHUB_TOKEN=YOUR_TOKEN
+```
+
+### Automatic Deployment
+```bash
+# Create and deploy in one command
+repokit create my-project --publish-to github --private-repo
+
+# Deploy to organization
+repokit create team-project \
+  --publish-to github \
+  --organization my-company \
+  --private-repo
+```
+
+## 🤖 AI Integration
+
+RepoKit includes Claude AI integration for enhanced development:
 
 ```bash
-# Specify Git user information
-repokit create my-project --user-name "Your Name" --user-email "your.email@example.com"
+# Create project with AI assistance
+repokit create my-project --ai claude
 
-# Customize branches and worktrees
-repokit create my-project --branches main,dev,prod --worktrees main,dev
-
-# Customize directories
-repokit create my-project --directories docs,src,tests,scripts
-
-# Use a configuration file
-repokit create my-project --config my-config.json
-
-# Increase verbosity for debugging
-repokit create my-project -vvv
+# This adds:
+# - CLAUDE.md with project context
+# - Development workflow instructions
+# - Problem-solving methodology (The Process)
+# - Private documentation structure
 ```
 
-### Configuration File
+## 📁 Directory Structure
 
-Create a JSON configuration file (`.repokit.json`):
-
-```json
-{
-  "name": "my-project",
-  "description": "A new project repository",
-  "language": "python",
-  "branches": ["main", "dev", "staging", "test", "live"],
-  "worktrees": ["main", "dev"],
-  "directories": [
-    "convos", "docs", "logs", "private", "revisions", "scripts", "tests"
-  ],
-  "private_dirs": ["private", "convos", "logs"],
-  "private_branch": "private",
-  "github": true,
-  "user": {
-    "name": "Your Name",
-    "email": "your.email@example.com"
-  }
-}
-```
-
-## Directory Structure
-
-RepoKit creates repositories with the following structure:
+RepoKit creates an organized project structure:
 
 ```
 my-project/
 ├── local/          # Main repository (private branch)
-│   ├── .git/       # Git repository data
-│   ├── .github/    # GitHub configuration
-│   ├── convos/     # Private conversations (not committed)
 │   ├── docs/       # Documentation
-│   ├── logs/       # Local logs (not committed)
-│   ├── private/    # Private files (not committed)
-│   ├── revisions/  # Revision history
+│   ├── tests/      # Test files
 │   ├── scripts/    # Utility scripts
-│   └── tests/      # Test files
-├── github/         # GitHub worktree (main branch)
-├── main/           # Main branch worktree (optional)
-├── dev/            # Dev branch worktree
-└── ... other worktrees for feature branches
+│   ├── private/    # Local-only content
+│   │   └── claude/ # AI assistance docs
+│   └── ...
+├── github/         # Main branch worktree
+└── dev/           # Development branch worktree
 ```
 
-## Customizing Templates
+## 🧪 Testing
 
-RepoKit uses templates for generating repository files. You can use custom templates by specifying a templates directory:
+RepoKit includes a comprehensive test framework:
 
 ```bash
-repokit create my-project --templates-dir /path/to/templates
+# Run all tests
+python tests/run_tests.py
+
+# Run specific test categories
+python tests/run_tests.py --unit        # Fast unit tests
+python tests/run_tests.py --integration # CLI integration tests
+python tests/run_tests.py --github      # GitHub API tests (requires token)
+
+# Check test environment
+python tests/run_tests.py --check
 ```
 
-The templates directory should have the following structure:
+## 📚 Documentation
 
-```
-templates/
-├── common/
-│   ├── README.md.template
-│   ├── CONTRIBUTING.md.template
-│   ├── gitignore.template
-│   └── launch.json.template
-├── github/
-│   ├── CODEOWNERS.template
-│   ├── workflows/
-│   │   └── main.yml.template
-│   └── ISSUE_TEMPLATE/
-│       ├── bug-report.md.template
-│       └── feature-request.md.template
-├── languages/
-│   ├── python/
-│   │   ├── setup.py.template
-│   │   └── requirements.txt.template
-│   └── javascript/
-│       └── package.json.template
-└── hooks/
-    └── pre-commit.template
+- [Migration Guide](docs/Migration-Guide.md) - Universal bootstrap scenarios
+- [Workflow Guide](docs/Workflow-Guide.md) - Branch strategies explained
+- [Deployment Demo](docs/Deployment-Demo.md) - Step-by-step deployment examples
+- [Auth Guide](docs/Auth-Guide.md) - Authentication and credentials
+- [Test Framework](tests/README.md) - Comprehensive testing documentation
+
+## 🛠️ Configuration
+
+RepoKit uses hierarchical configuration:
+
+1. **Default values** (built-in)
+2. **Global config** (`~/.repokit/config.json`)
+3. **Project config** (`./.repokit.json`)
+4. **Environment variables** (`REPOKIT_*`)
+5. **CLI arguments** (highest priority)
+
+### Example Configuration
+```json
+{
+  "name": "my-project",
+  "language": "python",
+  "branches": ["main", "develop", "staging"],
+  "worktrees": ["main", "develop"],
+  "user": {
+    "name": "Your Name",
+    "email": "your.email@example.com"
+  },
+  "github": true,
+  "private_repo": true
+}
 ```
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and guidelines. Please feel free to open issues or submit pull requests.
+
+Like the project?
+
+[!["Buy Me A Coffee"](https://camo.githubusercontent.com/0b448aabee402aaf7b3b256ae471e7dc66bcf174fad7d6bb52b27138b2364e47/68747470733a2f2f7777772e6275796d6561636f666665652e636f6d2f6173736574732f696d672f637573746f6d5f696d616765732f6f72616e67655f696d672e706e67)](https://www.buymeacoffee.com/djdarcy)
+
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Inspired by modern DevOps practices and GitOps workflows
+  - https://nvie.com/posts/a-successful-git-branching-model/
+  - https://trunkbaseddevelopment.com/
+  - https://docs.github.com/en/get-started/quickstart/github-flow
+  - https://martinfowler.com/articles/continuousIntegration.html
+  - https://www.atlassian.com/continuous-delivery
+  - https://www.perforce.com/manuals/p4sag/Content/P4SAG/branches-best-practices.html
+- Built for developers who value consistency and automation
+- Special thanks to the open-source community
+
+---
+
+**Current Version**: 0.2.0  
+**Requirements**: Python 3.7+  
+**No Runtime Dependencies**: Pure Python implementation
