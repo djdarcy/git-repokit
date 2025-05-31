@@ -162,6 +162,8 @@ class RepoManager:
         
         # Configure user information if provided
         user = self.config.get('user', {})
+        if not isinstance(user, dict):
+            user = {}
         if user:
             # Get user name
             if user.get('name'):
@@ -196,11 +198,16 @@ class RepoManager:
         readme_path = os.path.join(self.repo_root, "README.md")
         
         # Generate README from template
+        # Get user info safely
+        user_info = self.config.get('user', {})
+        if not isinstance(user_info, dict):
+            user_info = {}
+            
         context = {
             'project_name': self.project_name,
             'description': self.config.get('description', 'A new project'),
-            'author': self.config.get('user', {}).get('name', ''),
-            'author_email': self.config.get('user', {}).get('email', '')
+            'author': user_info.get('name', ''),
+            'author_email': user_info.get('email', '')
         }
         
         # Try to render from template, fall back to simple content
@@ -248,7 +255,13 @@ class RepoManager:
         main_branch = self.config.get('default_branch', 'main')
         if main_branch in worktree_branches:
             # Get directory name for main branch from branch_config
-            github_dir = self.config.get('branch_config', {}).get('branch_directories', {}).get(main_branch, 'github')
+            branch_config = self.config.get('branch_config', {})
+            if not isinstance(branch_config, dict):
+                branch_config = {}
+            branch_directories = branch_config.get('branch_directories', {})
+            if not isinstance(branch_directories, dict):
+                branch_directories = {}
+            github_dir = branch_directories.get(main_branch, 'github')
             github_path = os.path.join(os.path.dirname(self.repo_root), github_dir)
             
             try:
@@ -269,12 +282,12 @@ class RepoManager:
         # Add additional worktrees as configured
         worktree_base = os.path.dirname(self.repo_root)
         for branch in worktree_branches:
-            if branch == main_branch and main_branch in self.config.get('branch_config', {}).get('branch_directories', {}):
+            if branch == main_branch and main_branch in branch_directories:
                 # Skip main branch if it has a custom directory mapping (already handled above)
                 continue
                 
-            # Get directory name for this branch
-            branch_dir = self.config.get('branch_config', {}).get('branch_directories', {}).get(branch, branch)
+            # Get directory name for this branch  
+            branch_dir = branch_directories.get(branch, branch)
             worktree_path = os.path.join(worktree_base, branch_dir)
             
             # Skip if already exists (might be the main branch worktree we already created)
@@ -1112,7 +1125,10 @@ exit 0
     def _generate_badges(self, language: str) -> str:
         """Generate GitHub workflow badges based on language and configuration."""
         # Get GitHub username from config if available
-        github_user = self.config.get('github', {}).get('username', 'YOUR_GITHUB_USERNAME')
+        github_config = self.config.get('github', {})
+        if not isinstance(github_config, dict):
+            github_config = {}
+        github_user = github_config.get('username', 'YOUR_GITHUB_USERNAME')
         
         # Base badges
         badges = []
