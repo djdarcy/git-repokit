@@ -23,6 +23,69 @@ mypy repokit/
 
 # Install in development mode with all dependencies
 pip install -e ".[dev]"
+
+# Run comprehensive test suite
+python tests/run_tests.py
+
+# Run specific test categories
+python tests/run_tests.py --unit        # Fast unit tests
+python tests/run_tests.py --integration # CLI integration tests  
+python tests/run_tests.py --github      # GitHub API tests (requires token)
+```
+
+## Development Workflow
+
+### Branch Strategy
+Follow this workflow for all development:
+
+```
+private → dev → main → test → staging → live
+```
+
+### Proper Git Workflow
+
+1. **Always start development in private branch or a new feature branch "feat/description"**:
+   ```bash
+   git checkout private
+   # Make your changes here
+   git add .
+   git commit -m "feat: description of changes"
+   ```
+
+2. **Merge to dev using --no-ff --no-commit**:
+   ```bash
+   git checkout dev
+   git merge private --no-ff --no-commit
+   # Resolve any conflicts
+   git commit -m "merge: bring private changes to dev
+   
+   Brief description of what was merged and why."
+   ```
+
+3. **Test thoroughly in dev**, then merge to main:
+   ```bash
+   git checkout main  
+   git merge dev --no-ff --no-commit
+   git commit -m "merge: tested changes from dev to main"
+   ```
+
+### Conversation Logging
+**IMPORTANT**: Always create conversation logs in `private/claude/` following this format:
+```
+private/claude/YYYY_MM_DD__HH_MM_SS__topic.md
+```
+
+Example: `private/claude/2025_05_31__09_38_11__branch_conditional_excludes_and_workflow_badges.md`
+
+### Branch-Conditional Files
+Files tracked in `private` but ignored in public branches:
+- `CLAUDE.md` - AI integration instructions
+- `private/claude/` - Conversation logs and development notes
+- `private/docs/` - Development documentation  
+- `private/notes/` - Development notes
+- `private/temp/` - Temporary development files
+
+This should be handled automatically by RepoKit's local exclude setup (but check if necessary).
 ```
 
 ## Architecture Overview
