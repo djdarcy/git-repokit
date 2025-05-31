@@ -133,3 +133,53 @@ git merge dev --no-ff --no-commit
 # Review changes with git status and git diff
 git commit -m "Descriptive merge message"
 ```
+
+## Additional Instructions
+
+**IMPORTANT**: Refer to the detailed instructions in `./private/claude/instructions/` for advanced workflows:
+
+1. **Step1 - CONTEXT REBUILDER**: How to reconstruct and clarify conversational context (use notes in `.\private\claude` as pointers)
+2. **Step2 - THE DEV WORKFLOW PROCESS**: The core 5-stage process for complex problem solving (see below)
+3. **Step3 - SUMMARIZE IT! CONTEXT-BRIDGE**: How to create detailed conversation summaries for handoffs
+
+### The Dev Workflow Process (The Process)
+
+When tackling complex problems or making significant decisions, use **THE PROCESS** - a 5-stage systematic approach:
+
+#### 🔁 The 5 Stages:
+
+1. **Problem Analysis**
+   - Define the core problem with precision
+   - Break into sub-problems/dimensions
+   - Explore pros, cons, edge cases, risks, surrounding factors, future considerations, extenuating considerations, etc.
+   - Consider short-term vs long-term implications
+
+2. **Conceptual Exploration**
+   - Understand WHY the problem exists
+   - Explore mental models and analogies
+   - Consider multiple approach types
+   - Examine relationships between elements
+
+3. **Brainstorming Solutions**
+   - Generate 3-5 possible solutions
+   - Analyze pros/cons/neutral elements/edge cases/etc for each
+   - Evaluate feasibility, scalability, complexity, trade-offs, and alignment with long-term goals
+   - Consider hybrid approaches
+
+4. **Synthesis and Recommendation**
+   - Combine best elements from various solutions
+   - Select optimal approach based on:
+     - Core problem resolution
+     - Edge case handling
+     - Long-term alignment
+     - Time/complexity/risks/other factors balance
+   - Justify with evidence from previous steps
+
+5. **Implementation Plan**
+   - Define step-by-step roadmap
+   - Include milestones, feedback loops, and brief time considerations (which helps establish complexity)
+   - Outline resources/tools/technologies needed
+   - Identify contingency plans
+   - Define success criteria
+
+**When to use "The Process"**: For any complex problem, design decision, bug investigation, or strategic choice. Always enumerate multiple possibilities rather than jumping to a single solution.
