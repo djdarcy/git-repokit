@@ -15,7 +15,7 @@ from typing import Dict, Any, Optional
 from .config import ConfigManager
 from .repo_manager import RepoManager
 from .template_engine import TemplateEngine
-from .directory_analyzer import analyze_directory, plan_migration, migrate_directory
+from .directory_analyzer import analyze_directory, plan_migration, migrate_directory, analyze_project, adopt_project
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -31,7 +31,7 @@ def parse_arguments() -> argparse.Namespace:
     # Required for 'create' command
     parser.add_argument(
         "command",
-        choices=["create", "list-templates", "init-config", "publish", "bootstrap", "store-credentials", "analyze", "migrate"],
+        choices=["create", "list-templates", "init-config", "publish", "bootstrap", "store-credentials", "analyze", "migrate", "adopt"],
         help="Command to execute (create a repository, list templates, initialize configuration, publish to remote, generate bootstrap script, or store credentials)"
     )
     
@@ -506,25 +506,63 @@ def main() -> int:
                 logger.error(f"Directory not found: {dir_path}")
                 return 1
             
-            from .directory_analyzer import analyze_directory
-            summary = analyze_directory(dir_path, verbose=args.verbose)
+            # Use comprehensive project analysis
+            summary = analyze_project(dir_path, verbose=args.verbose)
             
-            # Display the analysis results
-            print(f"\nAnalysis of {dir_path}:")
-            print(f"  Existing standard directories: {', '.join(summary['existing_dirs']) or 'None'}")
-            print(f"  Missing standard directories: {', '.join(summary['missing_dirs']) or 'None'}")
-            print(f"  Special directories: {', '.join(summary['special_dirs']) or 'None'}")
-            print(f"  Has Git repository: {'Yes' if summary['has_git_repository'] else 'No'}")
-            print(f"  Has template conflicts: {'Yes' if summary['has_template_conflicts'] else 'No'}")
-            print(f"  Suggested language: {summary['suggested_language']}")
-            print("\n  File counts:")
+            # Display the enhanced analysis results
+            print(f"\n=== PROJECT ANALYSIS: {dir_path} ===")
+            print(f"  Project type: {summary['project_type']}")
+            print(f"  Detected language: {summary['detected_language']}")
+            print(f"  Migration complexity: {summary['migration_complexity']}")
+            print(f"  Recommended strategy: {summary['recommended_strategy']}")
+            print(f"  Recommended branch strategy: {summary['recommended_branch_strategy']}")
+            
+            # Git state information
+            git_state = summary.get('git_state', {})
+            if git_state.get('is_repo'):
+                print(f"\n  Git repository:")
+                print(f"    Current branch: {git_state.get('current_branch', 'Unknown')}")
+                print(f"    Branches: {', '.join(git_state.get('branches', []))}")
+                print(f"    Has uncommitted changes: {'Yes' if git_state.get('has_uncommitted_changes') else 'No'}")
+                print(f"    Remotes: {', '.join(git_state.get('remotes', {}).keys()) or 'None'}")
+                print(f"    Branch strategy: {summary['branch_strategy']}")
+            else:
+                print(f"  Git repository: No")
+            
+            # Directory structure
+            print(f"\n  Directory structure:")
+            print(f"    Existing standard directories: {', '.join(summary['existing_dirs']) or 'None'}")
+            print(f"    Missing standard directories: {', '.join(summary['missing_dirs']) or 'None'}")
+            print(f"    Special directories: {', '.join(summary['special_dirs']) or 'None'}")
+            print(f"    Has template conflicts: {'Yes' if summary['has_template_conflicts'] else 'No'}")
+            
+            # File information
+            print(f"\n  File counts:")
             for category, count in summary['file_counts'].items():
                 if count > 0:
                     print(f"    {category}: {count}")
             print(f"    Total: {summary['total_files']}")
             
-            print("\nTo migrate this directory to RepoKit structure, use:")
-            print(f"  repokit migrate {args.name} --migration-strategy [safe|replace|merge]")
+            # Migration recommendations
+            print(f"\n  Migration steps:")
+            for i, step in enumerate(summary['migration_steps'], 1):
+                print(f"    {i}. {step}")
+            
+            # Command suggestions
+            print(f"\n=== NEXT STEPS ===")
+            if summary['project_type'] == 'repokit':
+                print("  Project is already using RepoKit structure.")
+            elif summary['project_type'] == 'empty':
+                print("  Create new RepoKit project:")
+                print(f"    repokit create {os.path.basename(dir_path)} --language {summary['detected_language']}")
+            else:
+                print("  Migrate to RepoKit structure:")
+                print(f"    repokit migrate {args.name} --migration-strategy {summary['recommended_strategy']}")
+                print("  Or adopt in-place:")
+                print(f"    repokit adopt {args.name} --strategy {summary['recommended_strategy']}")
+                if args.publish_to:
+                    print(f"  With publishing:")
+                    print(f"    repokit adopt {args.name} --publish-to {args.publish_to}")
             
             return 0
         except Exception as e:
@@ -547,7 +585,6 @@ def main() -> int:
                 return 1
             
             # First show the analysis
-            from .directory_analyzer import analyze_directory, plan_migration, migrate_directory
             summary = analyze_directory(dir_path, verbose=args.verbose)
             
             print(f"\nAnalysis of {dir_path}:")
@@ -617,6 +654,88 @@ def main() -> int:
                 return 1
         except Exception as e:
             logger.error(f"Error migrating directory: {str(e)}")
+            if args.verbose >= 2:
+                import traceback
+                traceback.print_exc()
+            return 1
+    
+    elif args.command == "adopt":
+        # Use current directory if no name provided
+        dir_path = os.path.abspath(args.name) if args.name else os.getcwd()
+        
+        if not os.path.exists(dir_path):
+            logger.error(f"Directory not found: {dir_path}")
+            return 1
+        
+        try:
+            # First analyze the project
+            summary = analyze_project(dir_path, verbose=args.verbose)
+            
+            print(f"\n=== ADOPTING PROJECT: {dir_path} ===")
+            print(f"  Project type: {summary['project_type']}")
+            print(f"  Detected language: {summary['detected_language']}")
+            print(f"  Migration complexity: {summary['migration_complexity']}")
+            
+            # Check if already RepoKit
+            if summary['project_type'] == 'repokit':
+                print("  Project is already using RepoKit structure.")
+                return 0
+            
+            # Warn about uncommitted changes
+            git_state = summary.get('git_state', {})
+            if git_state.get('has_uncommitted_changes'):
+                print("  WARNING: Uncommitted changes detected!")
+                if not args.dry_run and not args.quiet:
+                    confirm = input("  Continue with adoption? Changes should be committed first. [y/N]: ")
+                    if confirm.lower() != "y":
+                        print("  Adoption cancelled.")
+                        return 0
+            
+            # Determine strategies
+            strategy = args.migration_strategy if hasattr(args, 'migration_strategy') else summary['recommended_strategy']
+            branch_strategy = getattr(args, 'branch_strategy', None)
+            if not branch_strategy:
+                branch_strategy = summary['recommended_branch_strategy']
+            
+            print(f"  Using migration strategy: {strategy}")
+            print(f"  Using branch strategy: {branch_strategy}")
+            
+            if args.dry_run:
+                print(f"  DRY RUN - No changes will be made")
+            
+            # Execute adoption
+            success = adopt_project(
+                directory=dir_path,
+                strategy=strategy,
+                branch_strategy=branch_strategy,
+                publish_to=args.publish_to,
+                dry_run=args.dry_run,
+                verbose=args.verbose
+            )
+            
+            if success:
+                msg = "Adoption analysis completed (dry run)" if args.dry_run else "Project adopted successfully!"
+                print(f"\n{msg}")
+                
+                if not args.dry_run:
+                    print("\nNext steps:")
+                    print(f"  - Your project now uses RepoKit structure")
+                    print(f"  - Check the generated templates and configuration")
+                    print(f"  - Commit any new files to your repository")
+                    
+                    if args.publish_to:
+                        print(f"  - Repository will be published to {args.publish_to}")
+                    elif not git_state.get('remotes'):
+                        print(f"  - Consider publishing to a remote service:")
+                        print(f"    repokit publish {dir_path} --publish-to github")
+                
+                return 0
+            else:
+                logger.error("Project adoption failed.")
+                return 1
+                
+        except Exception as e:
+            logger.error(f"Error adopting project: {str(e)}")
             if args.verbose >= 2:
                 import traceback
                 traceback.print_exc()
