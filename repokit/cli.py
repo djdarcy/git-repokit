@@ -10,6 +10,7 @@ import sys
 import json
 import argparse
 import logging
+import subprocess
 from typing import Dict, Any, Optional
 
 from .config import ConfigManager
@@ -26,6 +27,13 @@ def parse_arguments() -> argparse.Namespace:
     """
     parser = argparse.ArgumentParser(
         description="Create a standardized Git repository with branches, worktrees, and templates."
+    )
+    
+    # Version argument
+    parser.add_argument(
+        "--version",
+        action="version",
+        version="RepoKit 0.1.1"
     )
     
     # Required for 'create' command
@@ -363,6 +371,9 @@ def main() -> int:
     # Add remote integration configuration
     if args.publish_to:
         service_config = config.get(args.publish_to, {})
+        # Ensure service_config is a dict, not a boolean
+        if not isinstance(service_config, dict):
+            service_config = {}
         if args.organization:
             if args.publish_to == "github":
                 service_config["organization"] = args.organization
@@ -439,6 +450,7 @@ def main() -> int:
         
         if success:
             logger.info(f"Successfully stored credentials for {args.publish_to}")
+            print(f"Credentials stored successfully for {args.publish_to}")
             return 0
         else:
             logger.error(f"Failed to store credentials for {args.publish_to}")
@@ -473,6 +485,9 @@ def main() -> int:
         
         if args.output:
             bootstrap_args.extend(["--config-path", args.output])
+            
+        if args.no_push:
+            bootstrap_args.append("--no-publish")
         
         if args.user_name:
             bootstrap_args.extend(["--git-user-name", args.user_name])
