@@ -1,8 +1,17 @@
-# Project dependencies
-# Add your dependencies here
+# Development dependencies for RepoKit
+# Install with: pip install -r requirements-dev.txt
 
-# Development dependencies
-pytest>=7.0.0
-black>=23.0.0
-flake8>=6.0.0
-mypy>=1.0.0
+# Test dependencies
+python-dotenv>=0.19.0
+requests>=2.25.0
+pytest>=6.0.0
+coverage>=5.0.0
+
+# Code quality
+flake8>=3.9.0
+black>=21.0
+mypy>=0.900
+
+# Documentation
+sphinx>=4.0.0
+sphinx-rtd-theme>=0.5.0
