@@ -99,6 +99,10 @@ class RepoManager:
             # Create initial commit
             self._create_initial_commit()
             
+            # Generate AI integration files if requested (only in private branch, after initial commit)
+            if self.config.get('ai_integration'):
+                self._generate_ai_templates()
+            
             # Set up private content protection
             self._setup_protection()
             
@@ -229,10 +233,6 @@ class RepoManager:
         
         # Switch to private branch (we stay on private in the main repo)
         self.run_git(["checkout", private_branch], cwd=self.repo_root)
-        
-        # Generate AI integration files if requested (only in private branch)
-        if self.config.get('ai_integration'):
-            self._generate_ai_templates()
     
     def _setup_worktrees(self) -> None:
         """Set up git worktrees for branches."""
@@ -923,18 +923,23 @@ exit 0
             ]
             
             for instruction_file in instruction_files:
-                src_path = self.template_engine.get_template_path(
-                    instruction_file, 
-                    category=f"ai/{ai_provider}/instructions"
-                )
+                # Try to get template path - for instruction files, try without .template extension first
+                src_path = os.path.join(self.template_engine.templates_dir, f"ai/{ai_provider}/instructions", instruction_file)
+                if not os.path.exists(src_path):
+                    # Try with template engine's path finding
+                    src_path = self.template_engine.get_template_path(
+                        instruction_file, 
+                        category=f"ai/{ai_provider}/instructions"
+                    )
+                
                 if src_path and os.path.exists(src_path):
                     dest_path = os.path.join(instructions_dir, instruction_file)
                     shutil.copy2(src_path, dest_path)
                     self.logger.debug(f"Copied instruction file: {instruction_file}")
             
-            # Add files to git
+            # Add files to git (use -f for private directory since it's in .gitignore)
             self.run_git(["add", "CLAUDE.md"], cwd=self.repo_root)
-            self.run_git(["add", "private/claude/"], cwd=self.repo_root)
+            self.run_git(["add", "-f", "private/claude/"], cwd=self.repo_root)
             
             # Commit AI integration files
             self.run_git(["commit", "-m", "Add Claude AI integration files"], cwd=self.repo_root)

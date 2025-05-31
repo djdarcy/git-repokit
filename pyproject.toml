@@ -12,6 +12,9 @@ requires-python = ">=3.7"
 # you have no true runtime deps now that pkg_resources is gone!
 dependencies = []
 
+[project.scripts]
+repokit = "repokit.cli:main"
+
 [project.optional-dependencies]
 # keep your formatter/tester/etc here
 dev = [
