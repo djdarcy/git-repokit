@@ -193,6 +193,14 @@ def parse_arguments() -> argparse.Namespace:
         help="Path to custom templates directory"
     )
     
+    # AI integration
+    parser.add_argument(
+        "--ai",
+        choices=["none", "claude"],
+        default="claude",
+        help="AI tool integration to include (default: claude)"
+    )
+    
     # Enhanced verbosity control
     verbosity_group = parser.add_mutually_exclusive_group()
     verbosity_group.add_argument(
@@ -297,6 +305,10 @@ def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:
     # Handle branch strategy
     if args.branch_strategy:
         cli_config["branch_strategy"] = args.branch_strategy
+    
+    # Handle AI integration
+    if args.ai and args.ai != "none":
+        cli_config["ai_integration"] = args.ai
     
     # Handle branch directory mappings
     branch_directories = {}
