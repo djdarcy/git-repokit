@@ -13,33 +13,165 @@
             "justMyCode": true
         },
         {
-            "name": "Python: Module",
+            "name": "RepoKit: Create Python Project",
             "type": "python",
             "request": "launch",
-            "module": "git-repokit",
+            "module": "repokit",
+            "args": [
+                "create",
+                "debug-test-project",
+                "--language", "python",
+                "--description", "Debug test project",
+                "--verbose", "-vv"
+            ],
             "console": "integratedTerminal",
-            "justMyCode": true
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}/../"
         },
         {
-            "name": "Python: Current File with Arguments",
+            "name": "RepoKit: Analyze Current Directory",
             "type": "python",
             "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal",
+            "module": "repokit",
             "args": [
-                // Add your arguments here
-                // Examples:
-                // "--input", "${workspaceFolder}/data/input.txt",
-                // "--output", "${workspaceFolder}/data/output.txt",
-                // Use VS Code's input picker to add arguments at runtime
-                "${command:pickArgs}"
-            ]
+                "analyze",
+                ".",
+                "--verbose", "-vv"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "RepoKit: Adopt Current Directory",
+            "type": "python",
+            "request": "launch",
+            "module": "repokit",
+            "args": [
+                "adopt",
+                ".",
+                "--strategy", "safe",
+                "--dry-run",
+                "--verbose", "-vv"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "RepoKit: Test Migration",
+            "type": "python",
+            "request": "launch",
+            "module": "repokit",
+            "args": [
+                "migrate",
+                "${workspaceFolder}/../test-migration-source",
+                "--migration-strategy", "safe",
+                "--dry-run",
+                "--verbose", "-vv"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "RepoKit: List Templates",
+            "type": "python",
+            "request": "launch",
+            "module": "repokit",
+            "args": [
+                "list-templates",
+                "--verbose"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "RepoKit: Create with GitHub (Debug)",
+            "type": "python",
+            "request": "launch",
+            "module": "repokit",
+            "args": [
+                "create",
+                "debug-github-project",
+                "--language", "python",
+                "--publish-to", "github",
+                "--private-repo",
+                "--dry-run",
+                "--verbose", "-vv"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "cwd": "${workspaceFolder}/../",
+            "env": {
+                "GITHUB_TOKEN": "${env:GITHUB_TOKEN}"
+            }
+        },
+        {
+            "name": "RepoKit: Bootstrap Scenario",
+            "type": "python",
+            "request": "launch",
+            "module": "repokit",
+            "args": [
+                "bootstrap",
+                "--name", "debug-bootstrap",
+                "--service", "github",
+                "--verbose", "-vv"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Tests: Unit Tests Only",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/run_tests.py",
+            "args": [
+                "--unit",
+                "--verbose"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Tests: Integration Tests",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/run_tests.py",
+            "args": [
+                "--integration",
+                "--verbose"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false
+        },
+        {
+            "name": "Tests: GitHub API Tests",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/tests/run_tests.py",
+            "args": [
+                "--github",
+                "--verbose"
+            ],
+            "console": "integratedTerminal",
+            "justMyCode": false,
+            "env": {
+                "GITHUB_TOKEN": "${env:GITHUB_TOKEN}"
+            }
         }
     ],
     "compounds": [
         {
-            "name": "Server/Client",
-            "configurations": ["Python: Module", "Python: Current File"]
+            "name": "RepoKit: Full Debug Suite",
+            "configurations": [
+                "RepoKit: Analyze Current Directory",
+                "Tests: Unit Tests Only"
+            ]
+        },
+        {
+            "name": "RepoKit: Migration Debug",
+            "configurations": [
+                "RepoKit: Analyze Current Directory",
+                "RepoKit: Adopt Current Directory"
+            ]
         }
     ]
 }
