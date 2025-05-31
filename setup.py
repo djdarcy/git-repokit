@@ -2,11 +2,23 @@ from setuptools import setup, find_packages
 
 setup(
     name="repokit",
-    version="0.1.1",
+    version="0.2.0",
     description="Repository Template Generator",
     author="Dustin Darcy",
     packages=find_packages(),
     install_requires=[],
+    extras_require={
+        'dev': [
+            'python-dotenv>=0.19.0',
+            'requests>=2.25.0',
+            'pytest>=6.0.0',
+            'coverage>=5.0.0',
+        ],
+        'test': [
+            'python-dotenv>=0.19.0',
+            'requests>=2.25.0',
+        ],
+    },
     entry_points={
         'console_scripts': [
             'repokit=repokit.cli:main',

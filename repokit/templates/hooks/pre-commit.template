@@ -12,19 +12,20 @@ for file in $(git diff --cached --name-only); do
 done
 
 # Check user-defined private directories
-PRIVATE_PATTERNS=(
+# Using heredoc for POSIX sh compatibility
+while IFS= read -r pattern; do
+    if [ -n "$pattern" ]; then
+        for file in $(git diff --cached --name-only); do
+            if echo "$file" | grep -q -E "$pattern"; then
+                echo "ERROR: Attempting to commit private content: $file"
+                echo "This file matches a protected pattern: $pattern"
+                exit 1
+            fi
+        done
+    fi
+done << EOF
 $private_dirs_patterns
-)
-
-for file in $(git diff --cached --name-only); do
-    for pattern in "${PRIVATE_PATTERNS[@]}"; do
-        if echo "$file" | grep -q -E "$pattern"; then
-            echo "ERROR: Attempting to commit private content: $file"
-            echo "This file matches a protected pattern: $pattern"
-            exit 1
-        fi
-    done
-done
+EOF
 
 # Check for large files (>10MB)
 for file in $(git diff --cached --name-only); do
