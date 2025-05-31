@@ -1,0 +1,41 @@
+#!/bin/sh
+# Pre-commit hook to prevent committing private content
+
+# Check for private directories
+for file in $(git diff --cached --name-only); do
+    # Check standard private directories
+    if echo "$file" | grep -q -E "^private/|^convos/|^logs/|__private__"; then
+        echo "ERROR: Attempting to commit private content: $file"
+        echo "Private content should not be committed to the repository."
+        exit 1
+    fi
+done
+
+# Check user-defined private directories
+PRIVATE_PATTERNS=(
+$private_dirs_patterns
+)
+
+for file in $(git diff --cached --name-only); do
+    for pattern in "${PRIVATE_PATTERNS[@]}"; do
+        if echo "$file" | grep -q -E "$pattern"; then
+            echo "ERROR: Attempting to commit private content: $file"
+            echo "This file matches a protected pattern: $pattern"
+            exit 1
+        fi
+    done
+done
+
+# Check for large files (>10MB)
+for file in $(git diff --cached --name-only); do
+    if [ -f "$file" ]; then
+        size=$(du -k "$file" | awk '{print $1}')
+        if [ "$size" -gt 10240 ]; then
+            echo "ERROR: File $file is too large ($size KB)"
+            echo "Consider using Git LFS or add to .gitignore"
+            exit 1
+        fi
+    fi
+done
+
+exit 0
