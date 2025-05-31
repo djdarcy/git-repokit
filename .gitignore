@@ -145,3 +145,6 @@ credentials.json
 /logs/
 **/__private__*
 
+# Revisions folder (kept only in private branch)
+/revisions/
+
