@@ -74,3 +74,62 @@ project/
 - Uses `pkg_resources` for template resource loading
 - Console entry point: `repokit` → `repokit.cli:main`
 - Version management in both `setup.py` and `pyproject.toml` (currently 0.1.1)
+
+## Private Branch Guidelines
+
+### Documentation Requirements
+
+- **ALWAYS** document all work performed in timestamped files under `./private/claude/`
+- Use filename format: `YYYY_MM_DD__HH_MM_SS__(TOPIC).md`
+- Include all commands executed, their outputs, and summaries
+
+### Version Control Practices
+
+- The `private` branch is LOCAL ONLY - never push to remote repositories
+- Commit frequently to track all changes and edits
+- Make minimal edits to preserve diff readability:
+  - Avoid unnecessary variable/function/class name changes
+  - Avoid changing comments unless they clarify intent
+  - Only rename when truly warranted for clarity or correctness
+  - Preserve existing code structure when possible (unless refactoring improves design)
+
+### Private Content Structure
+
+```
+private/
+├── claude/         # All Claude-assisted work documentation
+│   └── YYYY_MM_DD__HH_MM_SS__(TOPIC).md
+├── convos/         # Conversation logs (protected from commits)
+├── logs/           # System logs (protected from commits)
+└── CLAUDE.md       # This guidance file
+```
+
+### Excluded Content
+
+The `revisions/` folder should NOT exist in these branches:
+- live
+- staging
+- test
+- main/github
+- dev
+
+It should only be tracked in the `private` branch for local version control.
+
+### Merge Strategy Guidelines
+
+When merging branches, use the following flags to maintain clear history and verify changes:
+
+- **Always use `--no-ff`** (no fast-forward): Preserves merge commit history to track where changes originated
+- **Use `--no-commit`** when appropriate: Allows review of changes before finalizing the merge
+- This strategy helps:
+  - Track the source of all changes
+  - Review merge results before committing
+  - Avoid complicated reverts by catching issues early
+  - Maintain a clear project history
+
+Example:
+```bash
+git merge dev --no-ff --no-commit
+# Review changes with git status and git diff
+git commit -m "Descriptive merge message"
+```
