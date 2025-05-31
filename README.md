@@ -1,5 +1,11 @@
 # RepoKit
 
+[![GitHub Workflow Status](https://github.com/djdarcy/git-repokit/actions/workflows/main.yml/badge.svg)](https://github.com/djdarcy/git-repokit/actions)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/djdarcy/git-repokit/releases)
+[![Python](https://img.shields.io/badge/python-%3E%3D3.7-darkgreen)](https://python.org/downloads)
+[![License](https://img.shields.io/badge/license-MIT-orange)](https://github.com/djdarcy/git-repokit/blob/main/LICENSE)
+[![GitHub Discussions](https://img.shields.io/badge/discussions-Welcome-lightgrey)](https://github.com/djdarcy/git-repokit/discussions)
+
 RepoKit is an automation tool for creating standardized Git repositories with complex branching strategies, worktree-based workflows, and automated GitHub/GitLab deployment. It provides universal bootstrap capabilities for any project type - from empty directories to complex legacy codebases.
 
 ## Features
