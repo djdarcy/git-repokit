@@ -145,3 +145,4 @@ credentials.json
 /logs/
 **/__private__*
 
+/test-projects/
