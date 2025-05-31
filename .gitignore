@@ -148,3 +148,23 @@ credentials.json
 # Revisions folder (kept only in private branch)
 /revisions/
 
+
+#######################
+# Test Artifacts      #
+#######################
+
+# Test directories and files
+test-reports/
+.test_repos/
+test_github_repos.txt
+/test-projects/
+test-project/
+test-github-deploy/
+test-*-project/
+repokit-test-*/
+
+# Test credentials - NEVER commit these!
+.env.test
+test_token.txt
+test_credentials.json
+github_test_token.txt
