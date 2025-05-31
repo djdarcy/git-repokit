@@ -99,6 +99,10 @@ class RepoManager:
             # Create initial commit
             self._create_initial_commit()
             
+            # Generate AI integration files if requested (only in private branch, after initial commit)
+            if self.config.get('ai_integration'):
+                self._generate_ai_templates()
+            
             # Set up private content protection
             self._setup_protection()
             
@@ -237,7 +241,7 @@ class RepoManager:
         # Get branches to create worktrees for
         worktree_branches = self.config.get('worktrees', [self.config.get('default_branch', 'main'), 'dev'])
 
-        # Always add GitHub directory as worktree with the default branch if it’s in the list
+        # Always add GitHub directory as worktree with the default branch if itï¿½s in the list
         main_branch = self.config.get('default_branch', 'main')
         if main_branch in worktree_branches:
             # Get directory name for main branch from branch_config
@@ -876,3 +880,98 @@ exit 0
         except Exception as e:
             self.logger.error(f"Error publishing repository: {str(e)}")
             return False
+    
+    def _generate_ai_templates(self) -> None:
+        """Generate AI integration templates (only in private branch)."""
+        ai_provider = self.config.get('ai_integration', '').lower()
+        if not ai_provider or ai_provider == 'none':
+            return
+            
+        self.logger.info(f"Generating AI integration files for: {ai_provider}")
+        
+        # Create private/claude directory structure
+        if ai_provider == 'claude':
+            claude_dir = os.path.join(self.repo_root, "private", "claude")
+            instructions_dir = os.path.join(claude_dir, "instructions")
+            os.makedirs(instructions_dir, exist_ok=True)
+            
+            # Context for AI templates
+            import datetime
+            context = {
+                'project_name': self.project_name,
+                'description': self.config.get('description', 'A new project'),
+                'language': self.config.get('language', 'generic'),
+                'date': datetime.datetime.now().strftime('%Y-%m-%d'),
+                'test_command': self._get_test_command(),
+                'lint_command': self._get_lint_command(),
+                'build_command': self._get_build_command()
+            }
+            
+            # Generate CLAUDE.md
+            self.template_engine.render_template_to_file(
+                "CLAUDE.md",
+                os.path.join(self.repo_root, "CLAUDE.md"),
+                context,
+                category=f"ai/{ai_provider}"
+            )
+            
+            # Copy instruction files
+            instruction_files = [
+                "step1_context_rebuilder.md",
+                "step2_dev_workflow_process.md",
+                "step3_context_bridge.md"
+            ]
+            
+            for instruction_file in instruction_files:
+                # Try to get template path - for instruction files, try without .template extension first
+                src_path = os.path.join(self.template_engine.templates_dir, f"ai/{ai_provider}/instructions", instruction_file)
+                if not os.path.exists(src_path):
+                    # Try with template engine's path finding
+                    src_path = self.template_engine.get_template_path(
+                        instruction_file, 
+                        category=f"ai/{ai_provider}/instructions"
+                    )
+                
+                if src_path and os.path.exists(src_path):
+                    dest_path = os.path.join(instructions_dir, instruction_file)
+                    shutil.copy2(src_path, dest_path)
+                    self.logger.debug(f"Copied instruction file: {instruction_file}")
+            
+            # Add files to git (use -f for private directory since it's in .gitignore)
+            self.run_git(["add", "CLAUDE.md"], cwd=self.repo_root)
+            self.run_git(["add", "-f", "private/claude/"], cwd=self.repo_root)
+            
+            # Commit AI integration files
+            self.run_git(["commit", "-m", "Add Claude AI integration files"], cwd=self.repo_root)
+            
+            self.logger.info("AI integration files generated successfully")
+    
+    def _get_test_command(self) -> str:
+        """Get the appropriate test command for the language."""
+        language = self.config.get('language', 'generic')
+        commands = {
+            'python': 'pytest',
+            'javascript': 'npm test',
+            'generic': '# Add your test command here'
+        }
+        return commands.get(language, commands['generic'])
+    
+    def _get_lint_command(self) -> str:
+        """Get the appropriate lint command for the language."""
+        language = self.config.get('language', 'generic')
+        commands = {
+            'python': 'black . && flake8',
+            'javascript': 'npm run lint',
+            'generic': '# Add your lint command here'
+        }
+        return commands.get(language, commands['generic'])
+    
+    def _get_build_command(self) -> str:
+        """Get the appropriate build command for the language."""
+        language = self.config.get('language', 'generic')
+        commands = {
+            'python': 'python setup.py build',
+            'javascript': 'npm run build',
+            'generic': '# Add your build command here'
+        }
+        return commands.get(language, commands['generic'])
