@@ -33,6 +33,24 @@ python tests/run_tests.py --integration # CLI integration tests
 python tests/run_tests.py --github      # GitHub API tests (requires token)
 ```
 
+## Test Development Guidelines
+
+### Test Script Management
+- **One-off test scripts**: Store in `tests/one-offs/` directory
+- **Test runs**: Always use `test_runs/` directory (not test-runs)
+- **Keep test artifacts**: Don't delete one-off scripts - they may be useful later (use later to brainstorm unit tests or integration tests)
+
+Example:
+```bash
+# Create test script
+mkdir -p tests/one-offs
+vim tests/one-offs/test_directory_profiles.py
+
+# Run tests that create artifacts
+cd test_runs  # Standardized location
+python -m repokit create test-project --dir-profile minimal
+```
+
 ## Development Workflow
 
 ### Branch Strategy
@@ -51,6 +69,8 @@ private → dev → main → test → staging → live
    git add .
    git commit -m "feat: description of changes"
    ```
+
+**IMPORTANT**: Never include attribution lines like "Co-Authored-By" or "Generated with" in commit messages. All attributions are handled via git config user settings.
 
 2. **Merge to dev using --no-ff --no-commit**:
    ```bash
