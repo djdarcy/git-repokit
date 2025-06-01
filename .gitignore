@@ -154,6 +154,8 @@ credentials.json
 #######################
 
 # Test directories and files
+test_runs/
+test-runs/
 test-reports/
 .test_repos/
 test_github_repos.txt

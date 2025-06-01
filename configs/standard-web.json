@@ -1,0 +1,19 @@
+{
+    "name": "my-web-app",
+    "description": "A standard web application project",
+    "language": "javascript",
+    "directory_profile": "standard",
+    "directories": ["public", "static", "dist"],
+    "private_dirs": ["private", "convos", "logs", ".env"],
+    "branch_strategy": "simple",
+    "branch_config": {
+        "branch_directories": {
+            "main": "production",
+            "dev": "development"
+        }
+    },
+    "github": true,
+    "use_github_noreply": true,
+    "ai_integration": "claude",
+    "_comment": "Standard web project with additional web-specific directories (public, static, dist). Uses simple branching for straightforward deployment."
+}
