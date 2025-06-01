@@ -1,0 +1,45 @@
+{
+    "name": "enterprise-platform",
+    "description": "A complete enterprise application setup",
+    "language": "python",
+    "directory_profile": "complete",
+    "directory_groups": ["development", "documentation", "operations"],
+    "private_set": "enhanced",
+    "branch_strategy": "gitflow",
+    "branches": ["main", "develop", "release", "hotfix", "staging", "production"],
+    "worktrees": ["main", "develop", "staging"],
+    "branch_config": {
+        "branch_directories": {
+            "main": "production",
+            "develop": "dev",
+            "staging": "staging"
+        },
+        "branch_roles": {
+            "main": "production",
+            "develop": "development",
+            "release": "pre-release",
+            "hotfix": "emergency-fixes",
+            "staging": "pre-production",
+            "production": "live"
+        },
+        "branch_flow": {
+            "develop": ["release", "hotfix"],
+            "release": ["staging"],
+            "staging": ["main"],
+            "main": ["production"],
+            "hotfix": ["main", "develop"]
+        }
+    },
+    "github": true,
+    "use_github_noreply": true,
+    "ai_integration": "claude",
+    "directory_profiles": {
+        "enterprise": [
+            "src", "tests", "docs", "scripts", "config", "logs", 
+            "private", "convos", "revisions", "data", "examples", 
+            "tools", "resources", "assets", "deployment", "monitoring",
+            "security", "migrations", "benchmarks"
+        ]
+    },
+    "_comment": "Enterprise-grade configuration with complete directory structure, GitFlow branching, and custom directory profiles. Includes deployment and monitoring directories."
+}

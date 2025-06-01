@@ -1,0 +1,26 @@
+{
+    "name": "ml-research-project",
+    "description": "A custom machine learning research project",
+    "language": "python",
+    "directory_profile": "standard",
+    "directories": ["data", "models", "notebooks", "experiments", "results"],
+    "directory_groups": ["development", "documentation"],
+    "private_dirs": ["private", "convos", "logs", "data/raw", "credentials", "experiments/failed"],
+    "branch_strategy": "simple",
+    "branches": ["main", "dev", "experiments"],
+    "worktrees": ["main", "experiments"],
+    "branch_config": {
+        "branch_directories": {
+            "main": "stable",
+            "dev": "development",
+            "experiments": "experiments"
+        }
+    },
+    "directory_types": {
+        "src": "ml_research",
+        "tests": "tests",
+        "docs": "documentation"
+    },
+    "ai_integration": "claude",
+    "_comment": "Machine learning project with custom directories for data, models, and experiments. Note how private_dirs includes subdirectories like 'data/raw' for sensitive data."
+}
