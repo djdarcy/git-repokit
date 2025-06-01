@@ -540,20 +540,36 @@ class RepoManager:
         """Set up protection for private content."""
         self.logger.info("Setting up private content protection")
 
-        # Append to .gitignore for private content
+        # Check if .gitignore exists and read its content
         gitignore_path = os.path.join(self.repo_root, ".gitignore")
+        existing_content = ""
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r") as f:
+                existing_content = f.read()
 
-        with open(gitignore_path, "a") as f:
-            f.write("\n# Private content\n")
-
-            # Get private directories from config
-            private_dirs = self.config.get(
-                "private_dirs", ["private", "convos", "logs"]
-            )
-            for private_dir in private_dirs:
-                f.write(f"/{private_dir}/\n")
-
-            f.write("**/__private__*\n\n")
+        # Get private directories from config
+        private_dirs = self.config.get(
+            "private_dirs", ["private", "convos", "logs"]
+        )
+        
+        # Only add entries that don't already exist
+        entries_to_add = []
+        for private_dir in private_dirs:
+            pattern = f"/{private_dir}/"
+            if pattern not in existing_content:
+                entries_to_add.append(pattern)
+        
+        # Only append if we have new entries to add
+        if entries_to_add:
+            with open(gitignore_path, "a") as f:
+                f.write("\n# Private content (auto-added)\n")
+                for entry in entries_to_add:
+                    f.write(f"{entry}\n")
+                
+                # Add __private__ pattern if not already present
+                if "**/__private__*" not in existing_content:
+                    f.write("**/__private__*\n")
+                f.write("\n")
 
         # Create pre-commit hook
         hooks_dir = os.path.join(self.repo_root, ".git", "hooks")

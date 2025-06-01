@@ -22,6 +22,24 @@ $lint_command
 $build_command
 ```
 
+## Test Development Guidelines
+
+### Test Script Management
+- **One-off test scripts**: Store in `tests/one-offs/` directory
+- **Test runs**: Always use `test_runs/` directory (not test-runs)
+- **Keep test artifacts**: Don't delete one-off scripts - they may be useful later
+
+Example:
+```bash
+# Create test script
+mkdir -p tests/one-offs
+vim tests/one-offs/test_feature.py
+
+# Run tests that create artifacts
+cd test_runs  # Standardized location
+python test_feature.py
+```
+
 ## Architecture Notes
 
 <!-- Add your project-specific architecture notes here -->

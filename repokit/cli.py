@@ -33,188 +33,688 @@ def parse_arguments() -> argparse.Namespace:
         Parsed arguments
     """
     parser = argparse.ArgumentParser(
-        description="Create a standardized Git repository with branches, worktrees, and templates."
+        prog="repokit",
+        description="RepoKit - A Git repository template generator with standardized structures",
+        epilog="""
+Examples:
+  # Create a new Python project with standard structure
+  repokit create myproject --language python --dir-profile standard
+  
+  # Adopt an existing project with RepoKit structure
+  repokit adopt ./existing-project --strategy safe
+  
+  # Create with custom branch strategy
+  repokit create webapp --branch-strategy gitflow --publish-to github
+
+For detailed help on any command, use: repokit <command> --help
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
 
     # Version argument
-    parser.add_argument("--version", action="version", version="RepoKit 0.1.1")
-
-    # Required for 'create' command
+    parser.add_argument("--version", action="version", version="RepoKit 0.3.0")
+    
+    # Global options that apply to all commands
     parser.add_argument(
-        "command",
-        choices=[
-            "create",
-            "list-templates",
-            "init-config",
-            "publish",
-            "bootstrap",
-            "store-credentials",
-            "analyze",
-            "migrate",
-            "adopt",
-        ],
-        help="Command to execute (create a repository, list templates, initialize configuration, publish to remote, generate bootstrap script, or store credentials)",
+        "--config", "-c", 
+        help="Path to configuration file (JSON)",
+        metavar="FILE"
+    )
+    
+    parser.add_argument(
+        "--save-config",
+        help="Save the final configuration to the specified file",
+        metavar="FILE"
+    )
+    
+    # Verbosity control
+    verbosity_group = parser.add_mutually_exclusive_group()
+    verbosity_group.add_argument(
+        "--verbose", "-v",
+        action="count",
+        default=0,
+        help="Increase verbosity (-v for INFO, -vv for DEBUG, -vvv for detailed DEBUG)"
+    )
+    verbosity_group.add_argument(
+        "--quiet", "-q",
+        action="store_true",
+        help="Suppress all output except errors"
     )
 
-    parser.add_argument(
+    # Create subparsers for commands
+    subparsers = parser.add_subparsers(
+        title="Commands",
+        description="Available commands",
+        dest="command",
+        help="Use 'repokit <command> --help' for command-specific help",
+        required=True
+    )
+
+    # CREATE command
+    create_parser = subparsers.add_parser(
+        "create",
+        help="Create a new repository with RepoKit structure",
+        description="""
+Create a new Git repository with standardized structure, branches, and templates.
+
+This command initializes a complete project structure including:
+- Directory hierarchy based on profiles or custom specification
+- Multi-branch Git setup with worktrees
+- Template files for documentation, CI/CD, and language-specific needs
+- Pre-commit hooks for private content protection
+- Optional remote repository creation and pushing
+
+Directory Profiles:
+  minimal   - Basic structure: src, tests, docs
+  standard  - Common structure with config, logs, private directories
+  complete  - Full structure including examples, assets, resources
+
+Branch Strategies:
+  standard     - private→dev→main→test→staging→live
+  simple       - main→develop→staging→production
+  gitflow      - main→develop (with feature/release/hotfix support)
+  github-flow  - main-only with feature branches
+  minimal      - main→dev
+        """,
+        epilog="""
+Examples:
+  # Basic Python project
+  repokit create myapp --language python
+  
+  # Web project with standard profile
+  repokit create webapp --dir-profile standard --language javascript
+  
+  # Enterprise project with custom directories
+  repokit create enterprise-app --dir-profile complete --directories "analytics,ml-models"
+  
+  # Create and publish to GitHub
+  repokit create myproject --publish-to github --private-repo
+  
+Recipe: Data Science Project
+  repokit create ml-project \\
+    --language python \\
+    --dir-profile standard \\
+    --directories "data,models,notebooks" \\
+    --branch-strategy simple
+  
+Recipe: Microservice
+  repokit create user-service \\
+    --dir-profile minimal \\
+    --branch-strategy github-flow \\
+    --publish-to github \\
+    --organization mycompany
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    create_parser.add_argument(
         "name",
-        nargs="?",
-        help="Name of the repository to create (required for 'create' command), or path to existing repository (for 'publish' command)",
+        help="Name of the repository to create"
     )
-
-    parser.add_argument("--config", "-c", help="Path to configuration file (JSON)")
-
-    parser.add_argument(
-        "--language",
-        "-l",
+    
+    # Language and description
+    create_parser.add_argument(
+        "--language", "-l",
         choices=["python", "javascript", "generic"],
-        help="Programming language for language-specific templates",
+        default="generic",
+        help="Programming language for templates (default: generic)"
     )
-
-    parser.add_argument(
-        "--description", "-d", help="Short description of the repository"
+    
+    create_parser.add_argument(
+        "--description", "-d",
+        help="Short description of the repository"
     )
-
-    parser.add_argument(
-        "--branches",
-        "-b",
-        help="Comma-separated list of branches to create (default: main,dev,staging,test,live)",
+    
+    # Directory configuration - NEW PROFILE SUPPORT
+    dir_group = create_parser.add_argument_group("Directory Configuration")
+    dir_group.add_argument(
+        "--dir-profile",
+        choices=["minimal", "standard", "complete"],
+        help="Use a predefined directory profile"
     )
-
-    parser.add_argument(
-        "--worktrees",
-        "-w",
-        help="Comma-separated list of branches to create worktrees for (default: main,dev)",
+    
+    dir_group.add_argument(
+        "--dir-groups",
+        help="Comma-separated list of directory groups (development,documentation,operations,privacy)",
+        metavar="GROUPS"
     )
-
-    parser.add_argument(
-        "--directories", "-dir", help="Comma-separated list of directories to create"
+    
+    dir_group.add_argument(
+        "--directories", "-dir",
+        help="Comma-separated list of additional directories to create",
+        metavar="DIRS"
     )
-
-    parser.add_argument(
-        "--private-dirs",
-        "-pd",
+    
+    dir_group.add_argument(
+        "--private-dirs", "-pd",
         help="Comma-separated list of directories to mark as private",
+        metavar="DIRS"
     )
-
-    parser.add_argument(
-        "--private-branch", help="Name of the private branch (default: private)"
+    
+    dir_group.add_argument(
+        "--private-set",
+        choices=["standard", "enhanced"],
+        default="standard",
+        help="Private directory set to use (default: standard)"
     )
-
-    # Default branch override
-    parser.add_argument(
-        "--default-branch", help="Name of the default branch (default: main)"
+    
+    # Branch configuration
+    branch_group = create_parser.add_argument_group("Branch Configuration")
+    branch_group.add_argument(
+        "--branches", "-b",
+        help="Comma-separated list of branches to create",
+        metavar="BRANCHES"
     )
-
-    # Branch strategy options
-    parser.add_argument(
+    
+    branch_group.add_argument(
+        "--worktrees", "-w",
+        help="Comma-separated list of branches to create worktrees for",
+        metavar="BRANCHES"
+    )
+    
+    branch_group.add_argument(
+        "--private-branch",
+        default="private",
+        help="Name of the private branch (default: private)"
+    )
+    
+    branch_group.add_argument(
+        "--default-branch",
+        help="Name of the default branch (default: main)"
+    )
+    
+    branch_group.add_argument(
         "--branch-strategy",
         choices=["standard", "simple", "gitflow", "github-flow", "minimal"],
-        help="Predefined branch strategy to use (default: standard)",
+        help="Predefined branch strategy to use"
     )
-
-    parser.add_argument(
-        "--branch-config", help="Path to branch configuration file (JSON)"
+    
+    branch_group.add_argument(
+        "--branch-config",
+        help="Path to branch configuration file (JSON)",
+        metavar="FILE"
     )
-
-    # Branch directory mapping
-    parser.add_argument(
-        "--branch-dir-main", help="Directory name for main branch (default: github)"
+    
+    branch_group.add_argument(
+        "--branch-dir-main",
+        help="Directory name for main branch worktree (default: github)"
     )
-
-    parser.add_argument(
-        "--branch-dir-dev", help="Directory name for dev branch (default: dev)"
+    
+    branch_group.add_argument(
+        "--branch-dir-dev",
+        help="Directory name for dev branch worktree (default: dev)"
     )
-
-    # Migration options
-    parser.add_argument(
-        "--migration-strategy",
-        choices=["safe", "replace", "merge"],
-        default="safe",
-        help="Strategy for migration (safe: keep existing files, replace: use templates, merge: try to combine)",
+    
+    # Git configuration
+    git_group = create_parser.add_argument_group("Git Configuration")
+    git_group.add_argument(
+        "--user-name",
+        help="Git user name for commits"
     )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Analyze migration actions without executing them",
+    
+    git_group.add_argument(
+        "--user-email",
+        help="Git user email for commits"
     )
-
-    # Git user configuration
-    parser.add_argument("--user-name", help="Git user name for commits")
-
-    parser.add_argument("--user-email", help="Git user email for commits")
-
-    # Remote integration options
-    parser.add_argument(
+    
+    # Remote/Publishing options
+    remote_group = create_parser.add_argument_group("Remote Repository")
+    remote_group.add_argument(
         "--publish-to",
         choices=["github", "gitlab"],
-        help="Publish repository to a remote service (GitHub or GitLab)",
+        help="Publish repository to a remote service"
     )
-
-    parser.add_argument(
-        "--remote-name", default="origin", help="Name for the remote (default: origin)"
+    
+    remote_group.add_argument(
+        "--remote-name",
+        default="origin",
+        help="Name for the remote (default: origin)"
     )
-
-    parser.add_argument(
+    
+    remote_group.add_argument(
         "--private-repo",
         action="store_true",
-        help="Create a private repository on remote service",
+        help="Create a private repository on remote service"
     )
-
-    parser.add_argument(
-        "--organization", help="GitHub organization or GitLab group name"
+    
+    remote_group.add_argument(
+        "--organization",
+        help="GitHub organization or GitLab group name"
     )
-
-    parser.add_argument(
+    
+    remote_group.add_argument(
         "--no-push",
         action="store_true",
-        help="Don't push branches after creating remote repository",
+        help="Don't push branches after creating remote repository"
     )
-
-    # Authentication options
-    parser.add_argument("--token", help="Authentication token for remote service")
-
-    parser.add_argument(
+    
+    # Authentication
+    auth_group = create_parser.add_argument_group("Authentication")
+    auth_group.add_argument(
+        "--token",
+        help="Authentication token for remote service"
+    )
+    
+    auth_group.add_argument(
         "--token-command",
-        help="Command to retrieve token (e.g., 'pass show github/token')",
+        help="Command to retrieve token (e.g., 'pass show github/token')"
     )
-
-    parser.add_argument("--credentials-file", help="Path to credentials file")
-
-    # Bootstrap command options
-    parser.add_argument(
-        "--output",
-        "-o",
-        help="Output file for bootstrap script (default: bootstrap_repokit.py)",
+    
+    auth_group.add_argument(
+        "--credentials-file",
+        help="Path to credentials file",
+        metavar="FILE"
     )
-
-    # Template customization
-    parser.add_argument("--templates-dir", help="Path to custom templates directory")
-
-    # AI integration
-    parser.add_argument(
+    
+    # Template options
+    template_group = create_parser.add_argument_group("Template Configuration")
+    template_group.add_argument(
+        "--templates-dir",
+        help="Path to custom templates directory",
+        metavar="DIR"
+    )
+    
+    template_group.add_argument(
         "--ai",
         choices=["none", "claude"],
         default="claude",
-        help="AI tool integration to include (default: claude)",
+        help="AI tool integration to include (default: claude)"
     )
 
-    # Enhanced verbosity control
-    verbosity_group = parser.add_mutually_exclusive_group()
-    verbosity_group.add_argument(
-        "--verbose",
-        "-v",
-        action="count",
-        default=0,
-        help="Increase verbosity level (use -v, -vv, or -vvv for more detail)",
+    # ANALYZE command
+    analyze_parser = subparsers.add_parser(
+        "analyze",
+        help="Analyze an existing directory for RepoKit compatibility",
+        description="""
+Analyze an existing directory to understand its structure and provide recommendations
+for RepoKit adoption or migration.
+
+This command examines:
+- Current directory structure and how it maps to RepoKit profiles
+- Git repository state and branch configuration
+- Existing configuration files and potential conflicts
+- Project type detection (language, framework)
+- Migration complexity assessment
+
+The analysis provides:
+- Recommended migration strategy (safe, replace, merge)
+- Suggested branch strategy based on current setup
+- List of actions that would be taken during migration
+- Potential issues or conflicts to resolve
+        """,
+        epilog="""
+Examples:
+  # Analyze current directory
+  repokit analyze .
+  
+  # Analyze a specific project
+  repokit analyze /path/to/project
+  
+  # Verbose analysis with detailed information
+  repokit analyze ./myproject -vv
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    verbosity_group.add_argument(
-        "--quiet", "-q", action="store_true", help="Suppress all output except errors"
+    
+    analyze_parser.add_argument(
+        "name",
+        help="Path to directory to analyze"
     )
 
-    # Save configuration
-    parser.add_argument(
-        "--save-config", help="Save the configuration to the specified file"
+    # MIGRATE command
+    migrate_parser = subparsers.add_parser(
+        "migrate",
+        help="Migrate an existing directory to RepoKit structure",
+        description="""
+Migrate an existing directory to use RepoKit's standardized structure.
+
+Migration Strategies:
+  safe     - Preserve all existing files, only add missing RepoKit elements
+  replace  - Replace conflicting files with RepoKit templates
+  merge    - Attempt to merge existing content with RepoKit templates
+
+This command will:
+- Create missing standard directories
+- Add RepoKit configuration files
+- Set up Git hooks for private content protection
+- Generate appropriate .gitignore entries
+- Create template files where needed
+        """,
+        epilog="""
+Examples:
+  # Safe migration (preserves all existing files)
+  repokit migrate ./myproject
+  
+  # Replace strategy for clean template files
+  repokit migrate ./myproject --migration-strategy replace
+  
+  # Dry run to see what would happen
+  repokit migrate ./myproject --dry-run
+  
+  # Migrate and publish to GitHub
+  repokit migrate ./myproject --publish-to github
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    migrate_parser.add_argument(
+        "name",
+        help="Path to directory to migrate"
+    )
+    
+    migrate_parser.add_argument(
+        "--migration-strategy",
+        choices=["safe", "replace", "merge"],
+        default="safe",
+        help="Migration strategy (default: safe)"
+    )
+    
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be done without making changes"
+    )
+    
+    migrate_parser.add_argument(
+        "--publish-to",
+        choices=["github", "gitlab"],
+        help="Publish to remote after migration"
+    )
+
+    # ADOPT command
+    adopt_parser = subparsers.add_parser(
+        "adopt",
+        help="Adopt RepoKit in an existing Git repository",
+        description="""
+Adopt RepoKit structure in an existing Git repository without disrupting
+current development workflow.
+
+This is the recommended approach for active projects. It:
+- Preserves all existing Git history
+- Adds RepoKit structure incrementally
+- Sets up branches according to detected or specified strategy
+- Maintains existing remote connections
+- Can optionally publish to a new remote
+
+The adopt command is safer than migrate for repositories with:
+- Active development
+- Existing CI/CD pipelines
+- Multiple contributors
+- Production deployments
+        """,
+        epilog="""
+Examples:
+  # Adopt in current directory
+  repokit adopt
+  
+  # Adopt with specific branch strategy
+  repokit adopt --branch-strategy gitflow
+  
+  # Adopt and add GitHub remote
+  repokit adopt --publish-to github --organization myorg
+  
+  # Dry run to preview changes
+  repokit adopt --dry-run
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    adopt_parser.add_argument(
+        "name",
+        nargs="?",
+        help="Path to repository (default: current directory)"
+    )
+    
+    adopt_parser.add_argument(
+        "--branch-strategy",
+        choices=["standard", "simple", "gitflow", "github-flow", "minimal"],
+        help="Branch strategy to implement"
+    )
+    
+    adopt_parser.add_argument(
+        "--migration-strategy",
+        choices=["safe", "replace", "merge"],
+        default="safe",
+        help="File handling strategy (default: safe)"
+    )
+    
+    adopt_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without modifying repository"
+    )
+    
+    adopt_parser.add_argument(
+        "--publish-to",
+        choices=["github", "gitlab"],
+        help="Add new remote repository"
+    )
+
+    # PUBLISH command
+    publish_parser = subparsers.add_parser(
+        "publish",
+        help="Publish an existing repository to GitHub/GitLab",
+        description="""
+Publish an existing RepoKit repository to a remote service.
+
+This command:
+- Creates a remote repository on GitHub or GitLab
+- Sets up authentication using tokens or stored credentials
+- Configures remote tracking for all branches
+- Pushes all branches and tags
+- Can work with organization/group repositories
+        """,
+        epilog="""
+Examples:
+  # Publish current repository to GitHub
+  repokit publish . --publish-to github
+  
+  # Publish to organization with private visibility
+  repokit publish ./myproject --publish-to github --organization myorg --private-repo
+  
+  # Publish to GitLab group
+  repokit publish . --publish-to gitlab --organization mygroup
+  
+  # Publish without pushing branches
+  repokit publish . --publish-to github --no-push
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    publish_parser.add_argument(
+        "name",
+        help="Path to repository to publish"
+    )
+    
+    publish_parser.add_argument(
+        "--publish-to",
+        choices=["github", "gitlab"],
+        required=True,
+        help="Remote service to publish to"
+    )
+    
+    publish_parser.add_argument(
+        "--remote-name",
+        default="origin",
+        help="Name for the remote (default: origin)"
+    )
+    
+    publish_parser.add_argument(
+        "--private-repo",
+        action="store_true",
+        help="Create as private repository"
+    )
+    
+    publish_parser.add_argument(
+        "--organization",
+        help="Organization/group name"
+    )
+    
+    publish_parser.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Create remote but don't push"
+    )
+    
+    publish_parser.add_argument(
+        "--token",
+        help="Authentication token"
+    )
+    
+    publish_parser.add_argument(
+        "--token-command",
+        help="Command to retrieve token"
+    )
+    
+    publish_parser.add_argument(
+        "--credentials-file",
+        help="Path to credentials file"
+    )
+
+    # BOOTSTRAP command
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap",
+        help="Generate a bootstrap script for RepoKit setup",
+        description="""
+Generate a self-contained Python script that can bootstrap a complete
+RepoKit project with a single command.
+
+The bootstrap script:
+- Checks for Git installation
+- Configures Git user if needed
+- Creates the repository structure
+- Sets up all branches and worktrees
+- Can optionally publish to remote
+- Includes all RepoKit functionality in one file
+
+This is useful for:
+- Quick project initialization
+- CI/CD pipelines
+- Containerized environments
+- Sharing project templates
+        """,
+        epilog="""
+Examples:
+  # Generate basic bootstrap script
+  repokit bootstrap --name myproject
+  
+  # Bootstrap with GitHub publishing
+  repokit bootstrap --name webapp --service github --private
+  
+  # Custom output location
+  repokit bootstrap --name api --output setup_api.py
+  
+  # For organization project
+  repokit bootstrap --name service --service github --organization mycompany
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    bootstrap_parser.add_argument(
+        "--name",
+        help="Project name for the bootstrap script"
+    )
+    
+    bootstrap_parser.add_argument(
+        "--output", "-o",
+        default="bootstrap_repokit.py",
+        help="Output file path (default: bootstrap_repokit.py)"
+    )
+    
+    bootstrap_parser.add_argument(
+        "--service",
+        choices=["github", "gitlab"],
+        help="Include remote publishing in bootstrap"
+    )
+    
+    bootstrap_parser.add_argument(
+        "--private",
+        action="store_true",
+        help="Create private repository"
+    )
+    
+    bootstrap_parser.add_argument(
+        "--organization",
+        help="Organization/group name"
+    )
+    
+    bootstrap_parser.add_argument(
+        "--no-publish",
+        action="store_true",
+        help="Skip publishing step in bootstrap"
+    )
+    
+    bootstrap_parser.add_argument(
+        "--git-user-name",
+        help="Git user name for bootstrap"
+    )
+    
+    bootstrap_parser.add_argument(
+        "--git-user-email",
+        help="Git user email for bootstrap"
+    )
+
+    # Other simple commands
+    subparsers.add_parser(
+        "list-templates",
+        help="List all available templates",
+        description="Display all available template files that RepoKit can use."
+    )
+    
+    init_config_parser = subparsers.add_parser(
+        "init-config",
+        help="Initialize a .repokit.json configuration file",
+        description="""
+Create a default .repokit.json configuration file in the current directory.
+
+This file can be customized to set project-specific defaults for:
+- Directory structure and profiles
+- Branch strategies and names
+- Git user configuration
+- Remote service preferences
+- Template directories
+        """
+    )
+    
+    store_creds_parser = subparsers.add_parser(
+        "store-credentials",
+        help="Store credentials for GitHub/GitLab",
+        description="""
+Securely store authentication credentials for GitHub or GitLab.
+
+Credentials are stored in:
+- ~/.repokit/credentials.json (default)
+- Or a custom location specified by --credentials-file
+
+The stored credentials are used automatically when publishing repositories.
+        """
+    )
+    
+    store_creds_parser.add_argument(
+        "--publish-to",
+        choices=["github", "gitlab"],
+        required=True,
+        help="Service to store credentials for"
+    )
+    
+    store_creds_parser.add_argument(
+        "--token",
+        help="Authentication token to store"
+    )
+    
+    store_creds_parser.add_argument(
+        "--token-command",
+        help="Command to retrieve token"
+    )
+    
+    store_creds_parser.add_argument(
+        "--organization",
+        help="Default organization/group"
+    )
+    
+    store_creds_parser.add_argument(
+        "--credentials-file",
+        help="Custom credentials file path"
     )
 
     return parser.parse_args()
@@ -279,58 +779,70 @@ def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:
     """
     # Base configuration from CLI arguments
     cli_config = {
-        "name": args.name,
-        "language": args.language,
-        "description": args.description,
-        "private_branch": args.private_branch,
+        "name": getattr(args, "name", None),
+        "language": getattr(args, "language", None),
+        "description": getattr(args, "description", None),
+        "private_branch": getattr(args, "private_branch", None),
         "user": (
             {"name": args.user_name, "email": args.user_email}
-            if args.user_name or args.user_email
+            if getattr(args, "user_name", None) or getattr(args, "user_email", None)
             else None
         ),
     }
 
+    # Handle directory profile configuration
+    if hasattr(args, "dir_profile") and args.dir_profile:
+        cli_config["directory_profile"] = args.dir_profile
+    
+    if hasattr(args, "dir_groups") and args.dir_groups:
+        cli_config["directory_groups"] = [
+            group.strip() for group in args.dir_groups.split(",")
+        ]
+    
+    if hasattr(args, "private_set") and args.private_set:
+        cli_config["private_set"] = args.private_set
+
     # Handle list-type arguments
-    if args.branches:
+    if hasattr(args, "branches") and args.branches:
         cli_config["branches"] = [branch.strip() for branch in args.branches.split(",")]
 
-    if args.worktrees:
+    if hasattr(args, "worktrees") and args.worktrees:
         cli_config["worktrees"] = [
             worktree.strip() for worktree in args.worktrees.split(",")
         ]
 
-    if args.directories:
+    if hasattr(args, "directories") and args.directories:
         cli_config["directories"] = [
             directory.strip() for directory in args.directories.split(",")
         ]
 
-    if args.private_dirs:
+    if hasattr(args, "private_dirs") and args.private_dirs:
         cli_config["private_dirs"] = [
             dir.strip() for dir in args.private_dirs.split(",")
         ]
 
     # Handle branch strategy
-    if args.branch_strategy:
+    if hasattr(args, "branch_strategy") and args.branch_strategy:
         cli_config["branch_strategy"] = args.branch_strategy
 
     # Handle AI integration
-    if args.ai and args.ai != "none":
+    if hasattr(args, "ai") and args.ai and args.ai != "none":
         cli_config["ai_integration"] = args.ai
 
     # Handle branch directory mappings
     branch_directories = {}
 
-    if args.branch_dir_main:
+    if hasattr(args, "branch_dir_main") and args.branch_dir_main:
         branch_directories["main"] = args.branch_dir_main
 
-    if args.branch_dir_dev:
+    if hasattr(args, "branch_dir_dev") and args.branch_dir_dev:
         branch_directories["dev"] = args.branch_dir_dev
 
     if branch_directories:
         cli_config["branch_config"] = {"branch_directories": branch_directories}
 
     # default branch from CLI
-    if args.default_branch:
+    if hasattr(args, "default_branch") and args.default_branch:
         cli_config["default_branch"] = args.default_branch
 
     # Remove None values from config
