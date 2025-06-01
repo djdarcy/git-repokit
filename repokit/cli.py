@@ -870,7 +870,7 @@ def main() -> int:
         config_manager.load_config_file(args.config)
 
     # Load branch configuration file if provided
-    if args.branch_config and os.path.exists(args.branch_config):
+    if hasattr(args, 'branch_config') and args.branch_config and os.path.exists(args.branch_config):
         config_manager.load_branch_config_file(args.branch_config)
 
     # Add CLI arguments to configuration
