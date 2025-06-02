@@ -11,7 +11,7 @@ import shutil
 import json
 from pathlib import Path
 
-from test_utils import RepoKitTestCase
+from .test_utils import RepoKitTestCase
 
 # Import RepoKit modules
 import sys
