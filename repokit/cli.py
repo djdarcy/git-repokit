@@ -716,6 +716,79 @@ The stored credentials are used automatically when publishing repositories.
         "--credentials-file",
         help="Custom credentials file path"
     )
+    
+    # Add guardrails commands
+    guardrails_parser = subparsers.add_parser(
+        "setup-guardrails",
+        help="Set up private content protection guardrails",
+        description="""
+Set up RepoKit guardrails to prevent accidental commits of private content
+to public branches. This installs git hooks and configures branch-specific
+exclusions.
+        """,
+        epilog="""
+Examples:
+  # Set up guardrails in current repository
+  repokit setup-guardrails
+  
+  # Force reinstall hooks
+  repokit setup-guardrails --force
+        """
+    )
+    
+    guardrails_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing hooks"
+    )
+    
+    check_guardrails_parser = subparsers.add_parser(
+        "check-guardrails",
+        help="Check guardrails status and validate current state",
+        description="Check if guardrails are properly installed and validate staged changes."
+    )
+    
+    safe_merge_parser = subparsers.add_parser(
+        "safe-merge",
+        help="Merge branches with private content protection",
+        description="""
+Safely merge branches while automatically excluding private content when
+merging from private to public branches.
+        """,
+        epilog="""
+Examples:
+  # Preview merge from private to current branch
+  repokit safe-merge private --preview
+  
+  # Perform safe merge
+  repokit safe-merge private --no-ff --no-commit
+        """
+    )
+    
+    safe_merge_parser.add_argument(
+        "source_branch",
+        help="Branch to merge from"
+    )
+    
+    safe_merge_parser.add_argument(
+        "--no-commit",
+        action="store_true",
+        default=True,
+        help="Perform merge without committing (default)"
+    )
+    
+    safe_merge_parser.add_argument(
+        "--no-ff",
+        action="store_true",
+        default=True,
+        help="Create merge commit even if fast-forward (default)"
+    )
+    
+    safe_merge_parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Preview what would be merged without doing it"
+    )
 
     return parser.parse_args()
 
@@ -881,12 +954,12 @@ def main() -> int:
     config = config_manager.get_config()
 
     # Add remote integration configuration
-    if args.publish_to:
+    if hasattr(args, 'publish_to') and args.publish_to:
         service_config = config.get(args.publish_to, {})
         # Ensure service_config is a dict, not a boolean
         if not isinstance(service_config, dict):
             service_config = {}
-        if args.organization:
+        if hasattr(args, 'organization') and args.organization:
             if args.publish_to == "github":
                 service_config["organization"] = args.organization
             else:
@@ -901,7 +974,7 @@ def main() -> int:
         return 1
 
     # Save configuration if requested
-    if args.save_config:
+    if hasattr(args, 'save_config') and args.save_config:
         config_manager.save_config(args.save_config)
 
     # Handle commands
@@ -967,6 +1040,30 @@ def main() -> int:
         else:
             logger.error(f"Failed to store credentials for {args.publish_to}")
             return 1
+
+    elif args.command == "setup-guardrails":
+        from .guardrails import setup_guardrails_command
+        return setup_guardrails_command(args)
+
+    elif args.command == "check-guardrails":
+        from .guardrails import check_guardrails_command
+        return check_guardrails_command(args)
+
+    elif args.command == "safe-merge":
+        from .guardrails import GuardrailsManager
+        
+        manager = GuardrailsManager()
+        
+        if args.preview:
+            success = manager.safe_merge(args.source_branch, preview=True)
+        else:
+            success = manager.safe_merge(
+                args.source_branch,
+                no_commit=args.no_commit,
+                no_ff=args.no_ff
+            )
+        
+        return 0 if success else 1
 
     elif args.command == "bootstrap":
         bootstrap_script = os.path.join(

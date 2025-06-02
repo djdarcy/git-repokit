@@ -198,24 +198,56 @@ The `revisions/` folder should NOT exist in these branches:
 
 It should only be tracked in the `private` branch for local version control.
 
-### Merge Strategy Guidelines
+### CASCADE Protocol - Cascading Branch Updates
 
-When merging branches, use the following flags to maintain clear history and verify changes:
+RepoKit uses the CASCADE Protocol (Cascading Automated Sync for Continuous And Dependable Evolution) for systematic branch management:
 
-- **Always use `--no-ff`** (no fast-forward): Preserves merge commit history to track where changes originated
-- **Use `--no-commit`** when appropriate: Allows review of changes before finalizing the merge
-- This strategy helps:
-  - Track the source of all changes
-  - Review merge results before committing
-  - Avoid complicated reverts by catching issues early
-  - Maintain a clear project history
-
-Example:
-```bash
-git merge dev --no-ff --no-commit
-# Review changes with git status and git diff
-git commit -m "Descriptive merge message"
 ```
+private → dev → main → test → staging → live
+         ↑_______________________________|
+                  (fix cascade back)
+```
+
+#### Key CASCADE Rules:
+1. **Always merge with `--no-ff --no-commit`** to review changes before committing
+2. **Test at every step** - run full test suite after each merge
+3. **Fix cascade back** - fixes flow backward through hierarchy to maintain consistency
+4. **Never push private branch** - it contains sensitive AI documentation
+5. **Use guardrails** - run `repokit check-guardrails` before all commits
+
+#### CASCADE Implementation:
+```bash
+# 1. Check current state
+repokit check-guardrails
+git status
+
+# 2. Merge with review
+git checkout dev
+git merge private --no-ff --no-commit
+# Review and remove any private files if needed
+git status
+git commit -m "cascade: merge private to dev"
+
+# 3. Test thoroughly
+python tests/run_tests.py --all
+
+# 4. If tests fail, fix and cascade back:
+# Fix in dev → merge to private → re-test → re-merge forward
+
+# 5. Continue cascade
+git checkout main
+git merge dev --no-ff --no-commit
+# ... repeat process through test → staging → live
+```
+
+#### Private Content Protection:
+With RepoKit guardrails installed:
+- Private files (CLAUDE.md, private/claude/) remain in working directory
+- They are automatically ignored in public branches via .gitignore
+- Post-checkout hooks restore them when switching branches
+- Pre-commit hooks prevent accidental commits
+
+See `private/claude/2025_05_31__22_45_00__cascade_protocol_documentation.md` for full details.
 
 ## Additional Instructions
 
