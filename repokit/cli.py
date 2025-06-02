@@ -60,7 +60,7 @@ For detailed help on any command, use: repokit <command> --help
         help="Path to configuration file (JSON)",
         metavar="FILE"
     )
-    
+
     parser.add_argument(
         "--save-config",
         help="Save the final configuration to the specified file",
@@ -70,15 +70,14 @@ For detailed help on any command, use: repokit <command> --help
     # Verbosity control
     verbosity_group = parser.add_mutually_exclusive_group()
     verbosity_group.add_argument(
-        "--verbose", "-v",
+        "--verbose",
+        "-v",
         action="count",
         default=0,
         help="Increase verbosity (-v for INFO, -vv for DEBUG, -vvv for detailed DEBUG)"
     )
     verbosity_group.add_argument(
-        "--quiet", "-q",
-        action="store_true",
-        help="Suppress all output except errors"
+        "--quiet", "-q", action="store_true", help="Suppress all output except errors"
     )
 
     # Create subparsers for commands
