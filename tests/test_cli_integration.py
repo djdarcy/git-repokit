@@ -33,7 +33,7 @@ class TestCLICommands(RepoKitTestCase):
         exit_code, stdout, stderr = self.run_repokit(["--version"])
         
         self.assertEqual(exit_code, 0)
-        self.assertIn("0.1.1", stdout)  # Current version
+        self.assertIn("0.3.0", stdout)  # Current version
         
     def test_create_basic_project(self):
         """Test basic project creation."""

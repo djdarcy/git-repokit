@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""
+RepoKit Pre-Commit Hook with Private Content Guardrails.
+
+This hook prevents accidental commits of private content to public branches.
+"""
+
+import sys
+import os
+import subprocess
+
+# Add parent directory to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+try:
+    from repokit.branch_utils import BranchContext
+except ImportError:
+    print("ERROR: Could not import RepoKit branch utilities.")
+    print("Make sure RepoKit is installed: pip install -e .")
+    sys.exit(1)
+
+
+def main():
+    """Main pre-commit hook logic."""
+    # Get branch context
+    context = BranchContext()
+    
+    # Show current branch info
+    print(f"🔍 RepoKit Pre-Commit Check")
+    print(f"   Branch: {context.current_branch} ({context.branch_type})")
+    
+    # Validate commit
+    is_valid, errors = context.validate_commit()
+    
+    if not is_valid:
+        print("\n❌ COMMIT BLOCKED - Private Content Protection\n")
+        for error in errors:
+            print(error)
+        return 1
+    
+    # Additional checks for public branches
+    if context.is_public_branch():
+        staged_files = context.get_staged_files()
+        
+        # Warn about sensitive patterns even if not explicitly private
+        warnings = []
+        for file in staged_files:
+            if any(pattern in file.lower() for pattern in ['password', 'secret', 'token', 'credential']):
+                warnings.append(f"  ⚠️  {file} - filename suggests sensitive content")
+        
+        if warnings:
+            print("\n⚠️  WARNING - Potentially Sensitive Files:")
+            for warning in warnings:
+                print(warning)
+            print("\nMake sure these files don't contain actual secrets!")
+            print("Press Ctrl+C to cancel, or wait 3 seconds to continue...")
+            
+            try:
+                import time
+                time.sleep(3)
+            except KeyboardInterrupt:
+                print("\n\nCommit cancelled by user.")
+                return 1
+    
+    print("\n✅ Pre-commit checks passed!")
+    
+    # Check if we should set up branch excludes
+    exclude_file = os.path.join('.git', 'info', 'exclude')
+    if not os.path.exists(exclude_file) or os.path.getsize(exclude_file) == 0:
+        print("\n📝 Setting up branch-specific excludes...")
+        context.setup_branch_excludes()
+    
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
