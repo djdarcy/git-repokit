@@ -161,6 +161,10 @@ class BranchContext:
         
         Returns (is_valid, error_messages).
         """
+        # Check for override mechanisms
+        if self._check_override():
+            return True, []
+        
         if self.is_private_branch():
             # Private branches can have any content
             return True, []
@@ -184,10 +188,48 @@ class BranchContext:
                 "  1. Switch to private branch: git checkout private",
                 "  2. Or unstage these files: git reset HEAD <file>",
                 "  3. Or remove from working directory: rm <file>",
+                "  4. Or override with: REPOKIT_OVERRIDE=true git commit ...",
+                "  5. Or add '[override]' to commit message",
             ])
             return False, errors
         
         return True, []
+    
+    def _check_override(self) -> bool:
+        """Check if guardrails should be overridden."""
+        # Environment variable override
+        if os.environ.get('REPOKIT_OVERRIDE', '').lower() in ('true', '1', 'yes'):
+            print("🔓 REPOKIT_OVERRIDE detected - bypassing guardrails")
+            return True
+        
+        # Check commit message for override flag
+        try:
+            result = subprocess.run(
+                ['git', 'log', '--format=%B', '-n', '1'],
+                cwd=self.repo_path,
+                capture_output=True,
+                text=True,
+                check=False
+            )
+            
+            # Also check if we're in the middle of a commit (check COMMIT_EDITMSG)
+            commit_msg_file = os.path.join(self.repo_path, '.git', 'COMMIT_EDITMSG')
+            commit_message = ""
+            
+            if os.path.exists(commit_msg_file):
+                with open(commit_msg_file, 'r') as f:
+                    commit_message = f.read().strip()
+            elif result.returncode == 0:
+                commit_message = result.stdout.strip()
+            
+            if '[override]' in commit_message.lower() or '[repokit-override]' in commit_message.lower():
+                print("🔓 Override flag detected in commit message - bypassing guardrails")
+                return True
+                
+        except Exception:
+            pass  # If we can't check commit message, continue with normal validation
+        
+        return False
     
     def get_merge_excludes(self, source_branch: str, target_branch: str) -> Set[str]:
         """Get list of files to exclude when merging between branches."""
