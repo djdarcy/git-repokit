@@ -10,7 +10,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from test_utils import RepoKitTestCase, TestConfig
+from .test_utils import RepoKitTestCase, TestConfig
 
 
 class TestCLICommands(RepoKitTestCase):
