@@ -258,6 +258,12 @@ class DirectoryProfileManager:
                 private_dirs.append(actual_name)
             else:
                 standard_dirs.append(actual_name)
+        
+        # Add all private directories from the private set (even if not in profile)
+        for private_type in private_types:
+            actual_name = self.get_actual_directory_name(private_type, package_name)
+            if actual_name not in private_dirs:
+                private_dirs.append(actual_name)
 
         return {"standard": sorted(standard_dirs), "private": sorted(private_dirs)}
 

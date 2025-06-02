@@ -1,0 +1,13 @@
+{
+    "name": "my-python-project",
+    "description": "A minimal Python project setup",
+    "language": "python",
+    "directory_profile": "minimal",
+    "branch_strategy": "minimal",
+    "ai_integration": "claude",
+    "user": {
+        "name": "Your Name",
+        "email": "your.email@example.com"
+    },
+    "_comment": "This configuration creates a minimal Python project with just src, tests, and docs directories. Perfect for small utilities or scripts."
+}

@@ -12,6 +12,8 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
 
+from .directory_profiles import DirectoryProfileManager
+
 
 class ConfigManager:
     """
@@ -34,6 +36,9 @@ class ConfigManager:
         """
         self.verbose = verbose
         self.logger = logging.getLogger("repokit.config")
+        
+        # Initialize directory profile manager
+        self.directory_manager = DirectoryProfileManager(verbose=verbose)
 
         # Default configuration
         self.default_config = {
@@ -318,6 +323,9 @@ class ConfigManager:
 
         # Apply branch strategy
         self.apply_branch_strategy()
+        
+        # Resolve directory profiles
+        self.resolve_directory_profiles()
 
     def _merge_configs(self) -> Dict[str, Any]:
         """
@@ -606,3 +614,57 @@ class ConfigManager:
                     updated_info["email"] = github_email
 
         return updated_info
+    
+    def resolve_directory_profiles(self) -> None:
+        """
+        Resolve directory profiles into actual directory lists.
+        
+        This method converts directory profile names, groups, and explicit directories
+        into a final list of directories to create.
+        """
+        # Load custom directory profiles from config if available
+        if "directory_profiles" in self.config:
+            self.directory_manager.profiles.update(self.config["directory_profiles"])
+        
+        if "directory_groups" in self.config and isinstance(self.config["directory_groups"], dict):
+            self.directory_manager.groups.update(self.config["directory_groups"])
+        
+        if "directory_types" in self.config:
+            self.directory_manager.type_mapping.update(self.config["directory_types"])
+        
+        # Check if we're using a directory profile
+        profile = self.config.get("directory_profile")
+        groups = self.config.get("directory_groups", [])
+        private_set = self.config.get("private_set", "standard")
+        
+        # If we have a profile or groups, use the directory manager
+        if profile or groups:
+            # Get all directories from the profile manager
+            all_dirs = self.directory_manager.get_all_directories(
+                profile=profile or "standard",
+                groups=groups,
+                private_set=private_set,
+                package_name=self.config.get("name")
+            )
+            
+            # Convert to flat lists
+            directories = all_dirs["standard"]
+            private_dirs = all_dirs["private"]
+            
+            # Only add explicit additional directories from CLI, not from default config
+            if "directories" in self.cli_config:
+                existing_dirs = set(directories)
+                for d in self.cli_config["directories"]:
+                    if d not in existing_dirs:
+                        directories.append(d)
+            
+            # Update config with resolved directories
+            self.config["directories"] = directories
+            self.config["private_dirs"] = private_dirs
+            
+            if self.verbose >= 1:
+                self.logger.info(f"Resolved directory profile '{profile}' to {len(directories)} directories")
+        
+        # Ensure private_dirs is always set
+        if "private_dirs" not in self.config:
+            self.config["private_dirs"] = ["private", "convos", "logs"]
