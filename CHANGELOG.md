@@ -5,6 +5,48 @@ All notable changes to RepoKit will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-05-31
+
+### Added
+- **Directory Profile System** - Flexible directory structure management
+  - `--dir-profile` argument for predefined profiles (minimal, standard, complete)
+  - `--dir-groups` argument for group-based directory selection
+  - `--private-set` argument for private directory configuration
+  - DirectoryProfileManager class for centralized directory management
+  - Integration with ConfigManager for profile resolution
+  - Support for combining profiles with explicit directories
+  - Custom directory type mapping (e.g., src → package name)
+
+- **Enhanced CLI Documentation** - Comprehensive help system
+  - Restructured CLI with subparsers for detailed command help
+  - Man-page style documentation with examples and recipes
+  - Command-specific help with usage scenarios
+  - Recipe examples for common project types
+
+- **Configuration Examples** - Reference configurations
+  - `configs/` directory with example configurations
+  - minimal-python.json for basic Python projects
+  - standard-web.json for web applications
+  - complete-enterprise.json for large-scale projects
+  - custom-ml-project.json for machine learning projects
+  - Comprehensive README explaining configuration options
+
+- **Test Development Guidelines**
+  - Standardized test script location in `tests/one-offs/`
+  - Standardized test runs location in `test_runs/`
+  - Guidelines added to CLAUDE.md and templates
+
+### Changed
+- Updated .gitignore handling to prevent duplicate private directory entries
+- ConfigManager now supports directory profile resolution
+- CLI arguments now use getattr for safer attribute access
+- Template files now include test development guidelines
+
+### Fixed
+- Fixed bug where directory profiles were adding to defaults instead of replacing them
+- Fixed duplicate private directory entries in .gitignore
+- Improved backward compatibility for projects not using profiles
+
 ## [0.2.0] - 2025-05-31
 
 ### Added
