@@ -10,7 +10,7 @@ import time
 import json
 from pathlib import Path
 
-from test_utils import (
+from .test_utils import (
     RepoKitTestCase,
     requires_github_token,
     TestConfig,
