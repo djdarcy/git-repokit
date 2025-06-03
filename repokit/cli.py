@@ -812,6 +812,207 @@ Examples:
         help="Preview what would be merged without doing it"
     )
 
+    # Add safe-merge-dev command
+    safe_merge_dev_parser = subparsers.add_parser(
+        "safe-merge-dev",
+        help="Merge development branches with history protection",
+        description="""
+Merge development branches while protecting sensitive commit history.
+
+This command helps prevent detailed implementation history from leaking
+to public branches by intelligently squashing or preserving commits based
+on branch patterns and configurable rules.
+
+Branch categories and default behaviors:
+- prototype/*, experiment/*, spike/*: Always squash (development/exploration)
+- feature/*: Interactive mode (ask whether to squash)
+- bugfix/*, hotfix/*: Preserve history (important for tracking)
+
+The command will:
+- Analyze commits in the branch
+- Remove sensitive patterns from messages
+- Generate meaningful squash commit messages
+- Provide interactive options for feature branches
+        """,
+        epilog="""
+Examples:
+  # Merge a prototype branch (auto-squashes)
+  repokit safe-merge-dev prototype/new-feature
+  
+  # Merge a feature branch (interactive)
+  repokit safe-merge-dev feature/oauth-integration
+  
+  # Force squash with custom message
+  repokit safe-merge-dev feature/api --squash --message "Add REST API"
+  
+  # Preserve full history
+  repokit safe-merge-dev feature/refactor --no-squash
+  
+  # Preview without merging
+  repokit safe-merge-dev experiment/ml-model --preview
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "branch",
+        help="Development branch to merge"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--target",
+        help="Target branch (default: current branch)"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--squash",
+        action="store_true",
+        help="Force squash merge regardless of branch rules"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--no-squash",
+        action="store_true",
+        help="Preserve all commits regardless of branch rules"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--message", "-m",
+        help="Custom commit message for squashed merge"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--preserve-last",
+        type=int,
+        help="Preserve the last N commits (not yet implemented)"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Preview merge without executing"
+    )
+
+    # Add clean-history command
+    clean_history_parser = subparsers.add_parser(
+        "clean-history",
+        help="Clean sensitive data from repository history",
+        description="""
+Clean sensitive data from repository history using git filter-repo.
+
+This command provides safe, user-friendly tools to remove private files,
+secrets, and other sensitive data from git history. It includes pre-built
+recipes for common scenarios and comprehensive safety features.
+
+WARNING: This rewrites repository history and requires force-push!
+
+Pre-built recipes:
+- pre-open-source: Remove common private files (private/, CLAUDE.md, etc.)
+- windows-safe: Fix Windows reserved names (nul, con, aux, etc.)
+- remove-secrets: Remove API keys and passwords (coming soon)
+- cutoff-date: Remove old private data before a date (coming soon)
+
+Safety features:
+- Automatic backup before cleaning
+- Dry-run preview mode
+- Confirmation prompts
+- Clear warnings and instructions
+        """,
+        epilog="""
+Examples:
+  # Interactive mode - analyze and suggest cleaning
+  repokit clean-history
+  
+  # Remove common private files before open-sourcing
+  repokit clean-history --recipe pre-open-source
+  
+  # Preview what would be removed
+  repokit clean-history --recipe pre-open-source --dry-run
+  
+  # Fix Windows compatibility issues
+  repokit clean-history --recipe windows-safe
+  
+  # Remove specific paths
+  repokit clean-history --remove-paths private/ logs/ secrets/
+  
+  # Skip backup (not recommended)
+  repokit clean-history --recipe pre-open-source --no-backup
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    clean_history_parser.add_argument(
+        "--recipe",
+        choices=["pre-open-source", "windows-safe", "remove-secrets", "cutoff-date"],
+        help="Use a pre-built cleaning recipe"
+    )
+    
+    clean_history_parser.add_argument(
+        "--remove-paths",
+        nargs="+",
+        help="Specific paths to remove from history"
+    )
+    
+    clean_history_parser.add_argument(
+        "--cutoff-sha",
+        help="Remove private data only before this commit"
+    )
+    
+    clean_history_parser.add_argument(
+        "--cutoff-date",
+        help="Remove private data only before this date (YYYY-MM-DD)"
+    )
+    
+    clean_history_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without modifying repository"
+    )
+    
+    clean_history_parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Skip creating backup (not recommended)"
+    )
+    
+    clean_history_parser.add_argument(
+        "--backup-location",
+        help="Custom backup location (default: <repo>_backup_<timestamp>)"
+    )
+    
+    clean_history_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompts"
+    )
+
+    # Add analyze-history command
+    analyze_history_parser = subparsers.add_parser(
+        "analyze-history",
+        help="Analyze repository history for sensitive data",
+        description="""
+Analyze repository history to identify sensitive data that should be cleaned.
+
+This command scans your repository history and reports:
+- Private directories (private/, logs/, etc.)
+- Windows compatibility issues (nul, con, aux files)
+- Large files that might not belong
+- Potential secrets (coming soon)
+- Branch structure and commit count
+
+Use this before clean-history to understand what needs cleaning.
+        """,
+        epilog="""
+Examples:
+  # Analyze current repository
+  repokit analyze-history
+  
+  # Analyze with detailed output
+  repokit analyze-history -v
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
     return parser.parse_args()
 
 
@@ -1086,6 +1287,200 @@ def main() -> int:
             )
         
         return 0 if success else 1
+
+    elif args.command == "safe-merge-dev":
+        from .history_protection import HistoryProtectionManager
+        
+        # Get configuration for history protection
+        history_config = config.get('history_protection', {})
+        
+        # Initialize manager
+        manager = HistoryProtectionManager(
+            repo_path=os.getcwd(),
+            config=config,
+            verbose=args.verbose
+        )
+        
+        # Determine squash behavior
+        squash = None
+        if args.squash:
+            squash = True
+        elif args.no_squash:
+            squash = False
+        
+        # Perform the merge
+        success = manager.safe_merge_dev(
+            branch=args.branch,
+            target_branch=args.target,
+            squash=squash,
+            message=args.message,
+            preserve_last=args.preserve_last,
+            dry_run=args.preview
+        )
+        
+        return 0 if success else 1
+
+    elif args.command == "clean-history":
+        from .history_cleaner import HistoryCleaner, CleaningConfig, CleaningRecipe, GitFilterRepoNotFound
+        
+        try:
+            # Initialize cleaner
+            cleaner = HistoryCleaner(repo_path=os.getcwd(), verbose=args.verbose)
+            
+            # Interactive mode if no recipe specified
+            if not args.recipe and not args.remove_paths:
+                # Analyze repository
+                analysis = cleaner.analyze_repository()
+                
+                print("\n=== Repository Analysis ===")
+                print(f"Total commits: {analysis['total_commits']}")
+                print(f"Branches: {len(analysis['branches'])}")
+                
+                if analysis['private_paths']:
+                    print(f"\nFound {len(analysis['private_paths'])} private files:")
+                    for path in analysis['private_paths'][:10]:
+                        print(f"  - {path}")
+                    if len(analysis['private_paths']) > 10:
+                        print(f"  ... and {len(analysis['private_paths']) - 10} more")
+                
+                if analysis['windows_issues']:
+                    print(f"\nFound {len(analysis['windows_issues'])} Windows compatibility issues:")
+                    for path in analysis['windows_issues'][:5]:
+                        print(f"  - {path}")
+                    if len(analysis['windows_issues']) > 5:
+                        print(f"  ... and {len(analysis['windows_issues']) - 5} more")
+                
+                # Suggest recipe
+                if analysis['private_paths']:
+                    print("\n💡 Suggestion: Use --recipe pre-open-source to remove private files")
+                if analysis['windows_issues']:
+                    print("💡 Suggestion: Use --recipe windows-safe to fix Windows issues")
+                
+                return 0
+            
+            # Build configuration
+            if args.recipe:
+                recipe = CleaningRecipe(args.recipe)
+                config = cleaner.get_recipe_config(recipe)
+            else:
+                config = CleaningConfig(recipe=CleaningRecipe.CUSTOM)
+            
+            # Override with command-line options
+            if args.remove_paths:
+                config.paths_to_remove = args.remove_paths
+            if args.cutoff_sha:
+                config.cutoff_sha = args.cutoff_sha
+            if args.cutoff_date:
+                config.cutoff_date = args.cutoff_date
+            
+            config.dry_run = args.dry_run
+            config.force = args.force
+            if args.no_backup:
+                config.backup_location = 'skip'
+            elif args.backup_location:
+                config.backup_location = args.backup_location
+            
+            # Preview if requested
+            if args.dry_run:
+                preview = cleaner.preview_cleaning(config)
+                print("\n=== Cleaning Preview ===")
+                print(f"Recipe: {preview['recipe']}")
+                if preview['paths_to_remove']:
+                    print(f"Paths to remove: {', '.join(preview['paths_to_remove'])}")
+                if preview['estimated_impact']:
+                    print(f"Estimated impact: {preview['estimated_impact']}")
+                if preview['warnings']:
+                    print("\nWarnings:")
+                    for warning in preview['warnings']:
+                        print(f"  ⚠️  {warning}")
+            
+            # Execute cleaning
+            success = cleaner.clean_history(config)
+            return 0 if success else 1
+            
+        except GitFilterRepoNotFound as e:
+            logger.error(str(e))
+            print("\nTo install git filter-repo:")
+            print("  pip install git-filter-repo")
+            print("\nOr see: https://github.com/newren/git-filter-repo")
+            return 1
+        except Exception as e:
+            logger.error(f"Error cleaning history: {str(e)}")
+            if args.verbose >= 2:
+                import traceback
+                traceback.print_exc()
+            return 1
+
+    elif args.command == "analyze-history":
+        from .history_cleaner import HistoryCleaner, GitFilterRepoNotFound
+        
+        try:
+            # Initialize cleaner
+            cleaner = HistoryCleaner(repo_path=os.getcwd(), verbose=args.verbose)
+            
+            # Analyze repository
+            analysis = cleaner.analyze_repository()
+            
+            print("\n=== Repository History Analysis ===")
+            print(f"Repository: {os.getcwd()}")
+            print(f"Total commits: {analysis['total_commits']}")
+            print(f"Branches: {', '.join(analysis['branches'][:5])}")
+            if len(analysis['branches']) > 5:
+                print(f"         ... and {len(analysis['branches']) - 5} more")
+            
+            # Private paths
+            if analysis['private_paths']:
+                print(f"\n🔒 Private/Sensitive Paths ({len(analysis['private_paths'])} found):")
+                by_type = {}
+                for path in analysis['private_paths']:
+                    if path.startswith('private/'):
+                        by_type.setdefault('private/', []).append(path)
+                    elif path.startswith('logs/'):
+                        by_type.setdefault('logs/', []).append(path)
+                    elif path == 'CLAUDE.md':
+                        by_type.setdefault('AI files', []).append(path)
+                    else:
+                        by_type.setdefault('other', []).append(path)
+                
+                for type_name, paths in by_type.items():
+                    print(f"\n  {type_name}: {len(paths)} files")
+                    for path in paths[:3]:
+                        print(f"    - {path}")
+                    if len(paths) > 3:
+                        print(f"    ... and {len(paths) - 3} more")
+            
+            # Windows issues
+            if analysis['windows_issues']:
+                print(f"\n⚠️  Windows Compatibility Issues ({len(analysis['windows_issues'])} found):")
+                for path in analysis['windows_issues'][:5]:
+                    print(f"  - {path}")
+                if len(analysis['windows_issues']) > 5:
+                    print(f"  ... and {len(analysis['windows_issues']) - 5} more")
+            
+            # Recommendations
+            print("\n📋 Recommendations:")
+            if analysis['private_paths']:
+                print("  1. Remove private files with: repokit clean-history --recipe pre-open-source")
+            if analysis['windows_issues']:
+                print("  2. Fix Windows issues with: repokit clean-history --recipe windows-safe")
+            if not analysis['private_paths'] and not analysis['windows_issues']:
+                print("  ✅ No sensitive data detected!")
+            
+            print("\n💡 Tip: Use --dry-run to preview changes before cleaning")
+            
+            return 0
+            
+        except GitFilterRepoNotFound as e:
+            logger.error(str(e))
+            print("\nTo install git filter-repo:")
+            print("  pip install git-filter-repo")
+            return 1
+        except Exception as e:
+            logger.error(f"Error analyzing history: {str(e)}")
+            if args.verbose >= 2:
+                import traceback
+                traceback.print_exc()
+            return 1
 
     elif args.command == "bootstrap":
         bootstrap_script = os.path.join(
