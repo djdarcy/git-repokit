@@ -344,3 +344,55 @@ Add to `.repokit.json`:
 ```
 
 See `configs/history-protection.json` for a complete example.
+
+## History Cleaning
+
+RepoKit includes tools to clean sensitive data from existing repository history using git filter-repo.
+
+### Analyze History
+
+Check your repository for sensitive data before cleaning:
+
+```bash
+# Analyze current repository
+repokit analyze-history
+
+# Shows: private paths, Windows issues, branch structure
+```
+
+### Clean History
+
+Remove sensitive data with pre-built recipes:
+
+```bash
+# Remove common private files (private/, CLAUDE.md, logs/, etc.)
+repokit clean-history --recipe pre-open-source
+
+# Fix Windows compatibility issues (nul, con, aux files)
+repokit clean-history --recipe windows-safe
+
+# Preview changes without modifying repository
+repokit clean-history --recipe pre-open-source --dry-run
+
+# Remove specific paths
+repokit clean-history --remove-paths private/ secrets/ .env
+```
+
+### Safety Features
+
+- **Automatic backup** before any changes
+- **Dry-run mode** to preview impact
+- **Confirmation prompts** for destructive operations
+- **Clear warnings** about history rewriting
+
+### Complete Protection Strategy
+
+1. **Prevention**: Use `safe-merge-dev` for new development
+2. **Analysis**: Use `analyze-history` to find issues
+3. **Remediation**: Use `clean-history` to fix past problems
+4. **Verification**: Re-analyze to confirm cleaning
+
+**Note**: History cleaning requires `git filter-repo`. Install with:
+```bash
+pip install git-filter-repo
+```
