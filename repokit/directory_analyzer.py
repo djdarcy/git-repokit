@@ -1157,8 +1157,54 @@ class UniversalMigrationExecutor:
     def _setup_git_repository(self, branch_strategy: str) -> bool:
         """Set up Git repository with chosen branch strategy."""
         self.logger.info(f"Setting up Git repository with strategy: {branch_strategy}")
-        # Implementation would go here
-        return True
+        
+        try:
+            git_manager = GitManager(self.source_dir, self.verbose)
+            
+            # Define branch strategies
+            branch_configs = {
+                "simple": ["private", "dev", "main"],
+                "standard": ["private", "dev", "main", "test", "staging", "live"],
+                "gitflow": ["private", "develop", "main"],
+                "github-flow": ["private", "main"],
+                "minimal": ["main"]
+            }
+            
+            branches = branch_configs.get(branch_strategy, ["private", "dev", "main"])
+            
+            # Get current repo state
+            repo_state = git_manager.get_repo_state()
+            current_branch = repo_state.get("current_branch")
+            existing_branches = set(repo_state.get("branches", []))
+            
+            self.logger.info(f"Current branch: {current_branch}")
+            self.logger.info(f"Existing branches: {existing_branches}")
+            self.logger.info(f"Target branches for {branch_strategy}: {branches}")
+            
+            # Create missing branches
+            for branch in branches:
+                if branch not in existing_branches:
+                    try:
+                        git_manager.run_git(["checkout", "-b", branch])
+                        self.logger.info(f"Created branch: {branch}")
+                        existing_branches.add(branch)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to create branch {branch}: {e}")
+            
+            # Switch to main/default branch
+            default_branch = "main" if "main" in branches else branches[-1]
+            if default_branch in existing_branches:
+                try:
+                    git_manager.run_git(["checkout", default_branch])
+                    self.logger.info(f"Switched to default branch: {default_branch}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to switch to {default_branch}: {e}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to setup Git repository: {e}")
+            return False
 
     def _generate_templates(self) -> bool:
         """Generate appropriate templates."""
