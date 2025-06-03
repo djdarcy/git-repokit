@@ -526,6 +526,11 @@ Examples:
     )
     
     publish_parser.add_argument(
+        "--repo-name",
+        help="Name for the remote repository (default: directory name)"
+    )
+    
+    publish_parser.add_argument(
         "--publish-to",
         choices=["github", "gitlab"],
         required=True,
@@ -568,6 +573,24 @@ Examples:
     publish_parser.add_argument(
         "--credentials-file",
         help="Path to credentials file"
+    )
+    
+    publish_parser.add_argument(
+        "--templates-dir",
+        help="Path to custom templates directory",
+        metavar="DIR"
+    )
+    
+    publish_parser.add_argument(
+        "--include-branches",
+        nargs="+",
+        help="Only push these specific branches (overrides strategy defaults)"
+    )
+    
+    publish_parser.add_argument(
+        "--exclude-branches", 
+        nargs="+",
+        help="Exclude these branches from publishing (in addition to private)"
     )
 
     # BOOTSTRAP command
@@ -1483,8 +1506,9 @@ def main() -> int:
                 logger.error(f"Repository not found at {repo_path}")
                 return 1
 
-            # Update configuration with the correct path
-            config["name"] = os.path.basename(repo_path)
+            # Update configuration with the correct path and name
+            repo_name = args.repo_name if args.repo_name else os.path.basename(repo_path)
+            config["name"] = repo_name
 
             # Initialize RepoManager with the repository path
             repo_manager = RepoManager(
@@ -1504,13 +1528,20 @@ def main() -> int:
                 verbose=args.verbose,
             )
 
+            # Handle token - if direct token provided, create a command that echoes it
+            token_cmd = args.token_command
+            if args.token and not token_cmd:
+                token_cmd = f"echo {args.token}"
+            
             publish_success = remote_integration.setup_remote_repository(
                 service=args.publish_to,
                 remote_name=args.remote_name,
                 private=args.private_repo,
                 push_branches=not args.no_push,
                 organization=args.organization,
-                token_command=args.token_command,
+                token_command=token_cmd,
+                include_branches=getattr(args, 'include_branches', None),
+                exclude_branches=getattr(args, 'exclude_branches', None),
             )
 
             if not publish_success:

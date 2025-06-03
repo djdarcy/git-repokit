@@ -388,6 +388,102 @@ class RemoteIntegration:
 
         return successful_branches, failed_branches
 
+    def push_allowed_branches(
+        self, allowed_branches: List[str], exclude_branches: Optional[List[str]] = None, remote_name: str = "origin"
+    ) -> Tuple[List[str], List[str]]:
+        """
+        Push only the allowed branches to the remote repository.
+
+        Args:
+            allowed_branches: List of branch names that are allowed to be pushed
+            exclude_branches: List of branch names to exclude (additional safety check)
+            remote_name: Name of the remote (default: origin)
+
+        Returns:
+            Tuple of (successful_branches, failed_branches)
+        """
+        if exclude_branches is None:
+            exclude_branches = ["private"]
+
+        # Get all existing local branches
+        try:
+            branches_output = self.repo_manager.run_git(["branch", "--list"])
+            existing_branches = []
+
+            for branch in branches_output.split("\n"):
+                # Strip the leading "* " or "  " and any "+" from each branch name
+                branch_name = branch.strip().lstrip("*+").strip()
+                if branch_name:
+                    existing_branches.append(branch_name)
+        except Exception as e:
+            self.logger.error(f"Failed to get branches: {str(e)}")
+            return [], []
+
+        # Only push branches that exist locally AND are in the allowed list AND not excluded
+        branches_to_push = []
+        for branch in allowed_branches:
+            if branch in existing_branches and branch not in exclude_branches:
+                branches_to_push.append(branch)
+            elif branch not in existing_branches:
+                self.logger.info(f"Branch '{branch}' not found locally, skipping")
+
+        self.logger.info(f"Pushing allowed branches: {branches_to_push}")
+        
+        # Prioritize main branch first for initial push (important for GitHub)
+        if "main" in branches_to_push:
+            branches_to_push.remove("main")
+            branches_to_push.insert(0, "main")
+
+        successful_branches = []
+        failed_branches = []
+
+        # Get the current branch
+        current_branch = self.repo_manager.run_git(["branch", "--show-current"])
+
+        for branch in branches_to_push:
+            try:
+                # For branches that are currently checked out in worktrees, we need a different approach
+                if self.is_branch_checked_out(branch) and branch != current_branch:
+                    # Use refspec to push without checkout
+                    self.repo_manager.run_git(
+                        [
+                            "push",
+                            "-u",
+                            remote_name,
+                            f"refs/heads/{branch}:refs/heads/{branch}",
+                        ],
+                        check=True,
+                    )
+                else:
+                    # Normal push for branches that aren't checked out in worktrees
+                    if current_branch == branch:
+                        # We're on this branch, regular push
+                        self.repo_manager.run_git(["push", "-u", remote_name, branch])
+                    else:
+                        # We need to checkout the branch first
+                        self.repo_manager.run_git(["checkout", branch])
+                        self.repo_manager.run_git(["push", "-u", remote_name, branch])
+                        # Go back to the original branch
+                        self.repo_manager.run_git(["checkout", current_branch])
+
+                self.logger.info(f"Pushed branch '{branch}' to {remote_name}")
+                successful_branches.append(branch)
+            except Exception as e:
+                self.logger.error(f"Failed to push branch '{branch}': {str(e)}")
+                failed_branches.append(branch)
+
+        if successful_branches:
+            self.logger.info(
+                f"Successfully pushed branches: {', '.join(successful_branches)}"
+            )
+
+        if failed_branches:
+            self.logger.warning(
+                f"Failed to push branches: {', '.join(failed_branches)}"
+            )
+
+        return successful_branches, failed_branches
+
     def is_branch_checked_out(self, branch: str) -> bool:
         """
         Check if a branch is currently checked out in a worktree.
@@ -423,6 +519,8 @@ class RemoteIntegration:
         push_branches: bool = True,
         organization: Optional[str] = None,
         token_command: Optional[str] = None,
+        include_branches: Optional[List[str]] = None,
+        exclude_branches: Optional[List[str]] = None,
     ) -> bool:
         """
         Create a remote repository and push local branches.
@@ -434,6 +532,8 @@ class RemoteIntegration:
             push_branches: Whether to push branches after setup
             organization: Organization or group name (optional)
             token_command: Command to retrieve token (optional)
+            include_branches: Specific branches to push (overrides strategy defaults)
+            exclude_branches: Additional branches to exclude (beyond private)
 
         Returns:
             True if successful, False otherwise
@@ -465,9 +565,36 @@ class RemoteIntegration:
 
         # Push branches if requested
         if push_branches:
+            # Determine which branches to push
+            if include_branches:
+                # User explicitly specified branches to include
+                allowed_branches = include_branches
+                self.logger.info(f"Using user-specified branches to push: {allowed_branches}")
+            else:
+                # Use branch strategy to determine default branches
+                branch_strategy = self.repo_manager.config.get("branch_strategy", "simple")
+                
+                # Define which branches should be pushed for each strategy
+                push_branches_map = {
+                    "simple": ["main", "dev"],
+                    "standard": ["main", "dev", "test", "staging", "live"],
+                    "gitflow": ["main", "develop"],
+                    "github-flow": ["main"],
+                    "minimal": ["main"]
+                }
+                
+                # Get allowed branches for this strategy
+                allowed_branches = push_branches_map.get(branch_strategy, ["main", "dev"])
+                self.logger.info(f"Using {branch_strategy} strategy branches: {allowed_branches}")
+            
+            # Build exclude list: always exclude private branch + user-specified exclusions
             private_branch = self.repo_manager.config.get("private_branch", "private")
-            exclude_branches = [private_branch]
-            successful, failed = self.push_all_branches(exclude_branches, remote_name)
+            exclude_list = [private_branch]
+            if exclude_branches:
+                exclude_list.extend(exclude_branches)
+                self.logger.info(f"Additional excluded branches: {exclude_branches}")
+            
+            successful, failed = self.push_allowed_branches(allowed_branches, exclude_list, remote_name)
 
             if failed:
                 self.logger.warning(
