@@ -1,0 +1,54 @@
+{
+  "name": "example-project",
+  "description": "Example configuration for history protection",
+  "history_protection": {
+    "branch_rules": {
+      "prototype/*": {
+        "action": "squash",
+        "auto": true,
+        "message_template": "feat: prototype implementation"
+      },
+      "experiment/*": {
+        "action": "squash",
+        "auto": true
+      },
+      "spike/*": {
+        "action": "squash", 
+        "auto": true
+      },
+      "feature/*": {
+        "action": "interactive",
+        "auto": false,
+        "preserve_last": 3
+      },
+      "bugfix/*": {
+        "action": "preserve",
+        "auto": true
+      },
+      "hotfix/*": {
+        "action": "preserve",
+        "auto": true
+      },
+      "wip/*": {
+        "action": "squash",
+        "auto": true,
+        "message_template": "wip: development changes"
+      }
+    },
+    "sensitive_patterns": [
+      "private/",
+      "secret",
+      "password",
+      "token",
+      "api[_-]key",
+      "TODO:\\s*hack",
+      "FIXME:\\s*security",
+      "DO NOT COMMIT",
+      "@nocommit",
+      "TEMP:",
+      "DEBUG:",
+      "XXX:",
+      "\\bkey\\s*=\\s*[\"'].*[\"']"
+    ]
+  }
+}

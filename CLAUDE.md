@@ -298,3 +298,49 @@ When tackling complex problems or making significant decisions, use **THE PROCES
    - Define success criteria
 
 **When to use "The Process"**: For any complex problem, design decision, bug investigation, or strategic choice. Always enumerate multiple possibilities rather than jumping to a single solution.
+
+## History Protection
+
+RepoKit now includes advanced history protection to prevent sensitive commit details from leaking to public branches.
+
+### Safe Merge Dev Command
+
+Use `repokit safe-merge-dev` to merge development branches with automatic history protection:
+
+```bash
+# Merge a prototype branch (auto-squashes)
+repokit safe-merge-dev prototype/new-feature
+
+# Merge a feature branch (interactive)
+repokit safe-merge-dev feature/oauth-integration
+
+# Force squash with custom message
+repokit safe-merge-dev feature/api --squash --message "Add REST API"
+
+# Preview without merging
+repokit safe-merge-dev experiment/ml-model --preview
+```
+
+### Branch Categories
+
+Default behaviors by branch pattern:
+- `prototype/*`, `experiment/*`, `spike/*`: Always squash (development/exploration)
+- `feature/*`: Interactive mode (asks whether to squash)
+- `bugfix/*`, `hotfix/*`: Preserve full history (important for tracking)
+
+### Configuration
+
+Add to `.repokit.json`:
+```json
+{
+  "history_protection": {
+    "branch_rules": {
+      "prototype/*": {"action": "squash", "auto": true},
+      "feature/*": {"action": "interactive", "auto": false}
+    },
+    "sensitive_patterns": ["private/", "secret", "TODO: hack"]
+  }
+}
+```
+
+See `configs/history-protection.json` for a complete example.
