@@ -812,6 +812,87 @@ Examples:
         help="Preview what would be merged without doing it"
     )
 
+    # Add safe-merge-dev command
+    safe_merge_dev_parser = subparsers.add_parser(
+        "safe-merge-dev",
+        help="Merge development branches with history protection",
+        description="""
+Merge development branches while protecting sensitive commit history.
+
+This command helps prevent detailed implementation history from leaking
+to public branches by intelligently squashing or preserving commits based
+on branch patterns and configurable rules.
+
+Branch categories and default behaviors:
+- prototype/*, experiment/*, spike/*: Always squash (development/exploration)
+- feature/*: Interactive mode (ask whether to squash)
+- bugfix/*, hotfix/*: Preserve history (important for tracking)
+
+The command will:
+- Analyze commits in the branch
+- Remove sensitive patterns from messages
+- Generate meaningful squash commit messages
+- Provide interactive options for feature branches
+        """,
+        epilog="""
+Examples:
+  # Merge a prototype branch (auto-squashes)
+  repokit safe-merge-dev prototype/new-feature
+  
+  # Merge a feature branch (interactive)
+  repokit safe-merge-dev feature/oauth-integration
+  
+  # Force squash with custom message
+  repokit safe-merge-dev feature/api --squash --message "Add REST API"
+  
+  # Preserve full history
+  repokit safe-merge-dev feature/refactor --no-squash
+  
+  # Preview without merging
+  repokit safe-merge-dev experiment/ml-model --preview
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "branch",
+        help="Development branch to merge"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--target",
+        help="Target branch (default: current branch)"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--squash",
+        action="store_true",
+        help="Force squash merge regardless of branch rules"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--no-squash",
+        action="store_true",
+        help="Preserve all commits regardless of branch rules"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--message", "-m",
+        help="Custom commit message for squashed merge"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--preserve-last",
+        type=int,
+        help="Preserve the last N commits (not yet implemented)"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Preview merge without executing"
+    )
+
     return parser.parse_args()
 
 
@@ -1084,6 +1165,38 @@ def main() -> int:
                 no_commit=args.no_commit,
                 no_ff=args.no_ff
             )
+        
+        return 0 if success else 1
+
+    elif args.command == "safe-merge-dev":
+        from .history_protection import HistoryProtectionManager
+        
+        # Get configuration for history protection
+        history_config = config.get('history_protection', {})
+        
+        # Initialize manager
+        manager = HistoryProtectionManager(
+            repo_path=os.getcwd(),
+            config=config,
+            verbose=args.verbose
+        )
+        
+        # Determine squash behavior
+        squash = None
+        if args.squash:
+            squash = True
+        elif args.no_squash:
+            squash = False
+        
+        # Perform the merge
+        success = manager.safe_merge_dev(
+            branch=args.branch,
+            target_branch=args.target,
+            squash=squash,
+            message=args.message,
+            preserve_last=args.preserve_last,
+            dry_run=args.preview
+        )
         
         return 0 if success else 1
 
