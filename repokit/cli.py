@@ -2265,7 +2265,7 @@ def main() -> int:
                     
                     # Get default config for the recipe
                     recipe_enum = recipe_map[args.cleaning_recipe]
-                    config = cleaner._get_default_config(recipe_enum)
+                    config = cleaner.get_recipe_config(recipe_enum)
                     
                     # Override with adopt-specific settings
                     config.backup_location = f"{backup_path}_pre_clean" if 'backup_path' in locals() else None
