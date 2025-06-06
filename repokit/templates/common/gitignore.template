@@ -12,6 +12,7 @@ desktop.ini
 *.bak
 *.swp
 *~
+*.*~
 
 #######################
 # Project Directories #

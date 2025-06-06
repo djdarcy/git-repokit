@@ -11,45 +11,55 @@ from typing import Set, List, Dict, Optional, Tuple
 
 
 class BranchContext:
-    """Manages branch context and security rules."""
+    """Manages branch context and security rules with configurable patterns."""
     
-    # Branches that can contain private content
-    PRIVATE_BRANCHES = {'private', 'local'}
-    
-    # Branches that must never contain private content
-    PUBLIC_BRANCHES = {'main', 'master', 'dev', 'test', 'staging', 'live', 'prod', 'production'}
-    
-    # Files/directories that should only exist in private branches
-    PRIVATE_PATTERNS = {
-        'CLAUDE.md',
-        'private/',
-        'convos/',
-        'logs/',
-        'credentials/',
-        'secrets/',
-        '.env.local',
-        '.env.private',
-        '**/__private__*',
-        '**/private_*',
-    }
-    
-    # Files that should be excluded from public branches during merges
-    EXCLUDE_FROM_PUBLIC = {
-        'CLAUDE.md',
-        'private/claude/',
-        'private/docs/',
-        'private/notes/',
-        'private/temp/',
-        'revisions/',
-        'test-runs/',
-        'test_runs/',
-    }
-    
-    def __init__(self, repo_path: str = '.'):
-        """Initialize branch context for given repository."""
+    def __init__(self, repo_path: str = '.', config: Optional[Dict] = None):
+        """
+        Initialize branch context for given repository.
+        
+        Args:
+            repo_path: Path to the repository
+            config: Optional configuration dictionary to override default patterns
+        """
         self.repo_path = os.path.abspath(repo_path)
         self._current_branch = None
         self._branch_type = None
+        
+        # Load configuration or use defaults
+        config = config or {}
+        
+        # Configure private branches (can contain private content)
+        self.PRIVATE_BRANCHES = set(config.get('private_branches', ['private', 'local']))
+        
+        # Configure public branches (must not contain private content)
+        self.PUBLIC_BRANCHES = set(config.get('public_branches', 
+            ['main', 'master', 'dev', 'test', 'staging', 'live', 'prod', 'production']))
+        
+        # Configure private content patterns
+        self.PRIVATE_PATTERNS = set(config.get('private_patterns', {
+            'CLAUDE.md',
+            'private/',
+            'convos/',
+            'logs/',
+            'credentials/',
+            'secrets/',
+            '.env.local',
+            '.env.private',
+            '**/__private__*',
+            '**/private_*',
+        }))
+        
+        # Configure exclude patterns for public branches
+        self.EXCLUDE_FROM_PUBLIC = set(config.get('exclude_from_public', {
+            'CLAUDE.md',
+            'private/claude/',
+            'private/docs/',
+            'private/notes/',
+            'private/temp/',
+            'revisions/',
+            'test-runs/',
+            'test_runs/',
+        }))
     
     @property
     def current_branch(self) -> str:
