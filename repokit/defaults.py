@@ -29,7 +29,8 @@ DEFAULT_SENSITIVE_PATTERNS = [
     ".env*",
     "*.backup",
     "*.bak",
-    "*~"  # Vim backup files
+    "*~",  # Vim backup files
+    "*.*~"  # Vim backup files (multiple extensions)
 ]
 
 # Default branch configurations for BranchContext
@@ -62,6 +63,7 @@ DEFAULT_PRIVATE_PATTERNS = [
     "**/__private__*",
     "**/private_*",
     "*~",  # Vim backup files
+    "*.*~",  # Vim backup files (multiple extensions)
 ]
 
 # Files that should be excluded from public branches during merges
