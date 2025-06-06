@@ -31,6 +31,49 @@ DEFAULT_SENSITIVE_PATTERNS = [
     "*.bak"
 ]
 
+# Default branch configurations for BranchContext
+DEFAULT_PRIVATE_BRANCHES = [
+    "private",
+    "local"
+]
+
+DEFAULT_PUBLIC_BRANCHES = [
+    "main", 
+    "master", 
+    "dev", 
+    "test", 
+    "staging", 
+    "live", 
+    "prod", 
+    "production"
+]
+
+# Files/directories that should only exist in private branches
+DEFAULT_PRIVATE_PATTERNS = [
+    "CLAUDE.md",
+    "private/",
+    "convos/",
+    "logs/",
+    "credentials/",
+    "secrets/",
+    ".env.local",
+    ".env.private",
+    "**/__private__*",
+    "**/private_*",
+]
+
+# Files that should be excluded from public branches during merges
+DEFAULT_EXCLUDE_FROM_PUBLIC = [
+    "CLAUDE.md",
+    "private/claude/",
+    "private/docs/",
+    "private/notes/",
+    "private/temp/",
+    "revisions/",
+    "test-runs/",
+    "test_runs/",
+]
+
 # Branch-specific excludes - files that should only exist in certain branches
 BRANCH_SPECIFIC_EXCLUDES = {
     "private": [],  # Private branch can contain everything

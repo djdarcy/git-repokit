@@ -640,6 +640,19 @@ Examples:
         metavar="PATH"
     )
     
+    adopt_parser.add_argument(
+        "--clean-history",
+        action="store_true", 
+        help="Clean private content from git history before creating public branches"
+    )
+    
+    adopt_parser.add_argument(
+        "--cleaning-recipe",
+        choices=["pre-open-source", "windows-safe", "remove-secrets"],
+        default="pre-open-source",
+        help="Recipe for cleaning history (default: pre-open-source)"
+    )
+    
     # Remote/Publishing options
     adopt_remote_group = adopt_parser.add_argument_group("Remote Repository")
     adopt_remote_group.add_argument(
@@ -2231,6 +2244,48 @@ def main() -> int:
                     print(f"  ✓ Backup created successfully")
                 except Exception as e:
                     logger.error(f"Failed to create backup: {str(e)}")
+                    return 1
+
+            # Clean history if requested
+            if hasattr(args, 'clean_history') and args.clean_history and not args.dry_run:
+                try:
+                    from .history_cleaner import HistoryCleaner, CleaningConfig, CleaningRecipe, GitFilterRepoNotFound
+                    
+                    print(f"  Cleaning repository history using '{args.cleaning_recipe}' recipe...")
+                    
+                    # Initialize cleaner
+                    cleaner = HistoryCleaner(repo_path=dir_path, verbose=args.verbose)
+                    
+                    # Build cleaning config 
+                    recipe_map = {
+                        "pre-open-source": CleaningRecipe.PRE_OPEN_SOURCE,
+                        "windows-safe": CleaningRecipe.WINDOWS_SAFE, 
+                        "remove-secrets": CleaningRecipe.REMOVE_SECRETS
+                    }
+                    
+                    config = CleaningConfig(
+                        recipe=recipe_map[args.cleaning_recipe],
+                        backup_location=f"{backup_path}_pre_clean" if 'backup_path' in locals() else None,
+                        dry_run=False,
+                        force=True  # Skip confirmation prompts during adopt
+                    )
+                    
+                    # Execute history cleaning
+                    success = cleaner.clean_history(config)
+                    if not success:
+                        logger.error("History cleaning failed - aborting adoption")
+                        return 1
+                    
+                    print(f"  ✓ Repository history cleaned successfully")
+                    
+                except GitFilterRepoNotFound as e:
+                    logger.error(str(e))
+                    print("\nTo install git filter-repo:")
+                    print("  pip install git-filter-repo")
+                    print("\nOr see: https://github.com/newren/git-filter-repo")
+                    return 1
+                except Exception as e:
+                    logger.error(f"Failed to clean history: {str(e)}")
                     return 1
 
             # Execute adoption using enhanced RepoManager approach

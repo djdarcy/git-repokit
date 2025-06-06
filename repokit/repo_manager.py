@@ -15,7 +15,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from .template_engine import TemplateEngine
-from .defaults import DEFAULT_PRIVATE_DIRS, DEFAULT_SENSITIVE_FILES, DEFAULT_SENSITIVE_PATTERNS
+from .defaults import (
+    DEFAULT_PRIVATE_DIRS, DEFAULT_SENSITIVE_FILES, DEFAULT_SENSITIVE_PATTERNS,
+    DEFAULT_PRIVATE_BRANCHES, DEFAULT_PUBLIC_BRANCHES, 
+    DEFAULT_PRIVATE_PATTERNS, DEFAULT_EXCLUDE_FROM_PUBLIC
+)
 
 
 class RepoManager:
@@ -637,18 +641,57 @@ class RepoManager:
                     f.write("**/__private__*\n")
                 f.write("\n")
 
-        # Create pre-commit hook
+        # Create pre-commit hook using BranchContext patterns
         hooks_dir = os.path.join(self.repo_root, ".git", "hooks")
         os.makedirs(hooks_dir, exist_ok=True)
 
-        # Generate the pattern string for private directories
-        private_dirs_patterns = ""
-        for dir_name in self.config.get("private_dirs", DEFAULT_PRIVATE_DIRS):
-            pattern = f"^{dir_name}/"
-            private_dirs_patterns += f'    "{pattern}"\n'
+        # Import BranchContext to get consistent patterns
+        from .branch_utils import BranchContext
+        
+        # Create context with configuration
+        branch_context = BranchContext(self.repo_root, self._get_branch_config())
+        
+        # Generate branch patterns for template
+        private_branch_patterns = "|".join(branch_context.PRIVATE_BRANCHES)
+        public_branch_patterns = "|".join(branch_context.PUBLIC_BRANCHES)
+        
+        # Add feature branch patterns (they're considered private in BranchContext)
+        private_branch_patterns += "|feature/*|feat/*|prototype/*|experiment/*|spike/*"
+        
+        # Generate private content patterns for template
+        # Convert BranchContext patterns to shell regex patterns
+        patterns = []
+        for pattern in branch_context.PRIVATE_PATTERNS:
+            if pattern.endswith('/'):
+                # Directory patterns: match files inside the directory
+                patterns.append(f"^{pattern.rstrip('/')}/")
+            elif '*' in pattern:
+                # Glob patterns: convert to regex
+                regex_pattern = pattern.replace('*', '.*').replace('**/', '.*/')
+                patterns.append(f"^{regex_pattern}")
+            else:
+                # Exact file patterns
+                patterns.append(f"^{pattern}$")
+        
+        # Add exclude patterns from public branches
+        for pattern in branch_context.EXCLUDE_FROM_PUBLIC:
+            if pattern.endswith('/'):
+                patterns.append(f"^{pattern.rstrip('/')}/")
+            elif '*' in pattern:
+                regex_pattern = pattern.replace('*', '.*').replace('**/', '.*/')
+                patterns.append(f"^{regex_pattern}")
+            else:
+                patterns.append(f"^{pattern}$")
+        
+        # Join all patterns with | for shell regex
+        private_content_regex = "|".join(patterns)
 
-        # Render pre-commit hook from template
-        context = {"private_dirs_patterns": private_dirs_patterns}
+        # Render pre-commit hook from template using BranchContext patterns
+        context = {
+            "private_branch_patterns": private_branch_patterns,
+            "public_branch_patterns": public_branch_patterns,
+            "private_content_regex": private_content_regex
+        }
 
         pre_commit_path = os.path.join(hooks_dir, "pre-commit")
         if not self.template_engine.render_template_to_file(
@@ -877,15 +920,18 @@ exit 0
 
     def _create_clean_public_branch(self, branch_name: str, source_branch: str) -> None:
         """
-        Create a clean public branch without private content.
+        Create a clean public branch without private content using existing guardrails.
         
-        This method creates a new branch with selective content, excluding private
-        directories and sensitive files. It uses a safer approach than rm -rf.
+        This method creates a new branch and uses the existing BranchContext infrastructure
+        to identify and remove private content, ensuring consistency with other guardrails.
         
         Args:
             branch_name: Name of the public branch to create
             source_branch: Source branch (typically 'private')
         """
+        # Import here to avoid circular dependencies
+        from .branch_utils import BranchContext
+        
         try:
             # First, ensure we're in a git repository
             if not os.path.exists(os.path.join(self.repo_root, ".git")):
@@ -907,107 +953,50 @@ exit 0
                 # Create the new branch from the source branch
                 self.run_git(["checkout", "-b", branch_name, source_branch], cwd=self.repo_root)
             
-            # Get private directories and sensitive files from config
-            private_dirs = self.config.get("private_dirs", DEFAULT_PRIVATE_DIRS)
-            sensitive_files = self.config.get("sensitive_files", DEFAULT_SENSITIVE_FILES)
-            sensitive_patterns = self.config.get("sensitive_patterns", DEFAULT_SENSITIVE_PATTERNS)
+            # Use existing BranchContext with configuration to identify private content
+            context = BranchContext(self.repo_root, self._get_branch_config())
             
-            # Build list of paths to remove
-            paths_to_remove = []
+            # Get all files tracked by git (check git index, not working directory)
+            tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
             
-            # Check for private directories
-            for private_dir in private_dirs:
-                private_path = os.path.join(self.repo_root, private_dir)
-                if os.path.exists(private_path) and os.path.isdir(private_path):
-                    # Verify it's within our repo root (safety check)
-                    if os.path.commonpath([self.repo_root, private_path]) == self.repo_root:
-                        paths_to_remove.append(private_dir)
-                        self.logger.debug(f"Will remove private directory: {private_dir}")
+            # Use existing guardrails logic to identify private files
+            private_files = context.check_private_files(tracked_files)
             
-            # Check for sensitive files (exact matches)
-            for sensitive_file in sensitive_files:
-                sensitive_path = os.path.join(self.repo_root, sensitive_file)
-                if os.path.exists(sensitive_path) and os.path.isfile(sensitive_path):
-                    # Verify it's within our repo root (safety check)
-                    if os.path.commonpath([self.repo_root, sensitive_path]) == self.repo_root:
-                        paths_to_remove.append(sensitive_file)
-                        self.logger.debug(f"Will remove sensitive file: {sensitive_file}")
-            
-            # Check for sensitive patterns (glob patterns)
-            import glob
-            for pattern in sensitive_patterns:
-                # Use glob to find files matching pattern
-                pattern_path = os.path.join(self.repo_root, pattern)
-                matching_files = glob.glob(pattern_path, recursive=True)
-                for file_path in matching_files:
-                    # Get relative path from repo root
+            files_removed = []
+            if private_files:
+                self.logger.info(f"Removing {len(private_files)} private files from branch '{branch_name}'")
+                
+                # Remove private files from git index
+                for file_path, reason in private_files:
                     try:
-                        rel_path = os.path.relpath(file_path, self.repo_root)
-                        # Don't add if already in paths_to_remove
-                        if rel_path not in paths_to_remove and os.path.exists(file_path):
-                            # Verify it's within our repo root (safety check)
-                            if os.path.commonpath([self.repo_root, file_path]) == self.repo_root:
-                                paths_to_remove.append(rel_path)
-                                self.logger.debug(f"Will remove pattern match: {rel_path} (pattern: {pattern})")
-                    except ValueError:
-                        # Skip files outside repo root
-                        continue
-            
-            # Remove the files/directories from git tracking
-            if paths_to_remove:
-                # Remove from git index and working directory
-                for path in paths_to_remove:
-                    try:
-                        # Remove from git index (but NOT from working directory)
-                        # Files will be ignored via .gitignore but preserved in private branch
-                        self.run_git(["rm", "-r", "--cached", "--ignore-unmatch", path], cwd=self.repo_root, check=False)
-                        self.logger.debug(f"Removed {path} from git index for public branch {branch_name}")
-                        
-                        # DO NOT physically remove files - they should remain for private branch
-                        # The .gitignore will prevent them from being tracked in this public branch
+                        # Remove from git index with proper error checking
+                        self.run_git(["rm", "--cached", "--ignore-unmatch", file_path], 
+                                   cwd=self.repo_root, check=True)
+                        files_removed.append(file_path)
+                        self.logger.debug(f"Removed {file_path} from git index: {reason}")
                     except Exception as e:
-                        self.logger.warning(f"Failed to remove {path}: {str(e)}")
+                        self.logger.error(f"CRITICAL: Failed to remove {file_path} from git index: {e}")
+                        raise
             
-            # Update .gitignore to ensure these don't come back
-            gitignore_path = os.path.join(self.repo_root, ".gitignore")
-            gitignore_content = []
+            # Update .gitignore to ensure private content stays ignored
+            self._update_gitignore_for_public_branch(context)
             
-            # Read existing .gitignore if it exists
-            if os.path.exists(gitignore_path):
-                with open(gitignore_path, "r") as f:
-                    gitignore_content = f.readlines()
-            
-            # Add private content protection section
-            protection_marker = "# Private content protection for public branch\n"
-            if protection_marker not in gitignore_content:
-                gitignore_content.append("\n")
-                gitignore_content.append(protection_marker)
-                for private_dir in private_dirs:
-                    gitignore_content.append(f"{private_dir}/\n")
-                for sensitive_file in sensitive_files:
-                    gitignore_content.append(f"{sensitive_file}\n")
-                for pattern in sensitive_patterns:
-                    gitignore_content.append(f"{pattern}\n")
-                
-                # Write updated .gitignore
-                with open(gitignore_path, "w") as f:
-                    f.writelines(gitignore_content)
-                
-                # Stage .gitignore changes
-                self.run_git(["add", ".gitignore"], cwd=self.repo_root)
-            
-            # Check if there are any staged changes to commit
+            # Commit the changes (both file removals and .gitignore updates)
             try:
-                staged_changes = self.run_git(["diff", "--cached", "--name-only"], cwd=self.repo_root)
+                staged_changes = self.run_git(["diff", "--cached", "--name-status"], cwd=self.repo_root)
                 if staged_changes.strip():
-                    # Create commit with clean content
-                    commit_message = f"Create clean {branch_name} branch\n\nRemoved private content and sensitive files for public distribution"
+                    commit_message = f"Remove private content from {branch_name} branch\n\nRemoved files:\n"
+                    for file_path in files_removed:
+                        commit_message += f"- {file_path}\n"
+                    commit_message += "\nUpdated .gitignore for public branch protection"
+                    
                     self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
-                    self.logger.info(f"Committed removal of private content from {branch_name}")
+                    self.logger.info(f"Committed removal of {len(files_removed)} private files from {branch_name}")
                 else:
-                    self.logger.info(f"No changes to commit for clean {branch_name} branch")
+                    self.logger.info(f"No private content found to remove from {branch_name}")
             except Exception as e:
-                self.logger.warning(f"Failed to commit clean branch changes: {str(e)}")
+                self.logger.error(f"CRITICAL: Failed to commit private content removal: {e}")
+                raise
             
             self.logger.info(f"Successfully created clean public branch '{branch_name}'")
             
@@ -1022,7 +1011,10 @@ exit 0
 
     def _verify_clean_branch(self, branch_name: str) -> bool:
         """
-        Verify that a branch does not contain private content.
+        Verify that a branch does not contain private content using existing guardrails.
+        
+        This method uses the existing BranchContext infrastructure to check for private
+        content by examining what git actually tracks, not just the working directory.
         
         Args:
             branch_name: Name of the branch to verify
@@ -1030,66 +1022,92 @@ exit 0
         Returns:
             True if branch is clean, False if private content found
         """
+        # Import here to avoid circular dependencies
+        from .branch_utils import BranchContext
+        
         try:
-            # Get private directories and sensitive files from config
-            private_dirs = self.config.get("private_dirs", DEFAULT_PRIVATE_DIRS)
-            sensitive_files = self.config.get("sensitive_files", DEFAULT_SENSITIVE_FILES)
-            sensitive_patterns = self.config.get("sensitive_patterns", DEFAULT_SENSITIVE_PATTERNS)
-            
             # Check current branch
             current_branch = self.run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo_root).strip()
             
             # Switch to target branch for verification
             self.run_git(["checkout", branch_name], cwd=self.repo_root)
             
-            # Check for private directories
-            violations = []
-            for private_dir in private_dirs:
-                private_path = os.path.join(self.repo_root, private_dir)
-                if os.path.exists(private_path) and os.path.isdir(private_path):
-                    # Check if it has any real content (not just .gitkeep)
-                    try:
-                        items = os.listdir(private_path)
-                        non_gitkeep_items = [item for item in items if item != ".gitkeep"]
-                        if non_gitkeep_items:
-                            violations.append(f"Directory {private_dir}/ contains: {non_gitkeep_items}")
-                    except PermissionError:
-                        violations.append(f"Directory {private_dir}/ exists but cannot read contents")
+            # Use existing BranchContext with configuration for verification
+            context = BranchContext(self.repo_root, self._get_branch_config())
             
-            # Check for sensitive files (exact matches)
-            for sensitive_file in sensitive_files:
-                sensitive_path = os.path.join(self.repo_root, sensitive_file)
-                if os.path.exists(sensitive_path) and os.path.isfile(sensitive_path):
-                    violations.append(f"Sensitive file {sensitive_file}")
+            # Check what git actually tracks (git index), not working directory
+            tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
             
-            # Check for sensitive patterns (glob patterns)
-            import glob
-            for pattern in sensitive_patterns:
-                pattern_path = os.path.join(self.repo_root, pattern)
-                matching_files = glob.glob(pattern_path, recursive=True)
-                for file_path in matching_files:
-                    try:
-                        rel_path = os.path.relpath(file_path, self.repo_root)
-                        if os.path.exists(file_path):
-                            violations.append(f"Pattern match {rel_path} (pattern: {pattern})")
-                    except ValueError:
-                        continue
+            # Use existing guardrails logic to identify private files
+            private_files = context.check_private_files(tracked_files)
             
             # Switch back to original branch
             self.run_git(["checkout", current_branch], cwd=self.repo_root)
             
-            if violations:
-                self.logger.error(f"Branch '{branch_name}' contains private content:")
-                for violation in violations:
-                    self.logger.error(f"  - {violation}")
+            if private_files:
+                self.logger.error(f"Branch '{branch_name}' contains {len(private_files)} private files in git index:")
+                for file_path, reason in private_files:
+                    self.logger.error(f"  {file_path}: {reason}")
                 return False
-            else:
-                self.logger.info(f"Branch '{branch_name}' verified clean - no private content found")
-                return True
-                
+            
+            self.logger.info(f"Branch '{branch_name}' verification passed - no private content found")
+            return True
+            
         except Exception as e:
-            self.logger.error(f"Failed to verify clean branch '{branch_name}': {str(e)}")
+            self.logger.error(f"Failed to verify branch '{branch_name}': {str(e)}")
             return False
+
+    def _update_gitignore_for_public_branch(self, context) -> None:
+        """
+        Update .gitignore with private content patterns using BranchContext.
+        
+        Args:
+            context: BranchContext instance to get patterns from
+        """
+        gitignore_path = os.path.join(self.repo_root, ".gitignore")
+        gitignore_content = []
+        
+        # Read existing .gitignore if it exists
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r") as f:
+                gitignore_content = f.readlines()
+        
+        # Add private content protection section using BranchContext patterns
+        protection_marker = "# RepoKit Private Content Protection (DO NOT REMOVE)\n"
+        if protection_marker not in "".join(gitignore_content):
+            gitignore_content.append("\n")
+            gitignore_content.append(protection_marker)
+            
+            # Add patterns from BranchContext
+            for pattern in context.PRIVATE_PATTERNS:
+                if pattern not in "".join(gitignore_content):
+                    gitignore_content.append(f"{pattern}\n")
+            
+            for pattern in context.EXCLUDE_FROM_PUBLIC:
+                if pattern not in "".join(gitignore_content):
+                    gitignore_content.append(f"{pattern}\n")
+            
+            # Write updated .gitignore
+            with open(gitignore_path, "w") as f:
+                f.writelines(gitignore_content)
+            
+            # Stage .gitignore changes
+            self.run_git(["add", ".gitignore"], cwd=self.repo_root)
+            self.logger.debug("Updated .gitignore with private content protection patterns")
+
+    def _get_branch_config(self) -> Dict:
+        """
+        Get branch configuration for BranchContext from repo configuration.
+        
+        Returns:
+            Dictionary with branch and pattern configuration
+        """
+        return {
+            'private_branches': self.config.get('private_branches', DEFAULT_PRIVATE_BRANCHES),
+            'public_branches': self.config.get('public_branches', DEFAULT_PUBLIC_BRANCHES),
+            'private_patterns': self.config.get('private_patterns', DEFAULT_PRIVATE_PATTERNS),
+            'exclude_from_public': self.config.get('exclude_from_public', DEFAULT_EXCLUDE_FROM_PUBLIC)
+        }
 
     def _has_changes(self, directory: str) -> bool:
         """
