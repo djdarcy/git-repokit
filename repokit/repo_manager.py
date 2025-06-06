@@ -118,6 +118,12 @@ class RepoManager:
             if self.config.get("ai_integration"):
                 self._generate_ai_templates()
 
+            # Clean up sensitive files and manage .gitkeep files for adopted repositories
+            if self.config.get("is_adoption", False):
+                cleanup_results = self._cleanup_sensitive_files()
+                gitkeep_results = self.manage_gitkeep_files()
+                self._log_cleanup_summary(cleanup_results, gitkeep_results)
+
             # Set up worktrees AFTER initial commits and branch updates
             # This is the key change - moved worktree setup to the end
             self._setup_worktrees()
@@ -127,6 +133,9 @@ class RepoManager:
 
             # Set up GitHub integration (copy files to GitHub worktree)
             self._setup_github_integration()
+
+            # Generate RepoKit configuration file with signature
+            self._generate_repokit_config()
 
             self.logger.info(f"Repository setup complete: {self.project_name}")
             self._print_next_steps()
@@ -163,9 +172,8 @@ class RepoManager:
             dir_path = os.path.join(self.repo_root, directory)
             os.makedirs(dir_path, exist_ok=True)
 
-            # Create .gitkeep file to ensure empty directories are tracked
-            with open(os.path.join(dir_path, ".gitkeep"), "w") as f:
-                f.write("# This file ensures the directory is tracked by Git\n")
+            # .gitkeep files will be managed properly by manage_gitkeep_files() method
+            # which checks if directories are actually empty before adding .gitkeep
 
     def manage_gitkeep_files(self, recursive: bool = True) -> Dict[str, List[str]]:
         """
@@ -1581,6 +1589,229 @@ exit 0
             "generic": "# Add your build command here",
         }
         return commands.get(language, commands["generic"])
+
+    def _cleanup_sensitive_files(self, dry_run: bool = False) -> Dict[str, List[str]]:
+        """
+        Comprehensive cleanup of sensitive files during repository adoption.
+        
+        Uses DEFAULT_SENSITIVE_PATTERNS to identify and remove files that
+        match our sensitive content patterns. Handles both working directory
+        and git index cleanup.
+        
+        Args:
+            dry_run: If True, only report what would be cleaned
+            
+        Returns:
+            Dictionary with 'working_dir' and 'git_index' lists of cleaned files
+        """
+        import fnmatch
+        import glob
+        
+        self.logger.info("Cleaning up sensitive files during repository adoption")
+        
+        cleanup_results = {
+            "working_dir": [],
+            "git_index": []
+        }
+        
+        # Get patterns to clean - use DEFAULT_SENSITIVE_PATTERNS for consistency
+        patterns_to_clean = DEFAULT_SENSITIVE_PATTERNS.copy()
+        
+        # Add any additional patterns from config
+        config_patterns = self.config.get("sensitive_patterns", [])
+        if config_patterns:
+            patterns_to_clean.extend(config_patterns)
+        
+        if self.verbose >= 1:
+            self.logger.info(f"Using {len(patterns_to_clean)} sensitive patterns for cleanup: {patterns_to_clean}")
+        
+        # Clean working directory files
+        self.logger.debug("Scanning working directory for sensitive files")
+        for root, dirs, files in os.walk(self.repo_root):
+            # Skip .git directory
+            if ".git" in root.split(os.sep):
+                continue
+                
+            for file in files:
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, self.repo_root)
+                
+                # Check if file matches any sensitive pattern
+                should_remove = False
+                matching_pattern = None
+                
+                for pattern in patterns_to_clean:
+                    # Handle different pattern types
+                    if fnmatch.fnmatch(relative_path, pattern) or fnmatch.fnmatch(file, pattern):
+                        should_remove = True
+                        matching_pattern = pattern
+                        break
+                
+                if should_remove:
+                    cleanup_results["working_dir"].append(relative_path)
+                    
+                    if dry_run:
+                        self.logger.info(f"Would remove (working dir): {relative_path} (pattern: {matching_pattern})")
+                    else:
+                        try:
+                            os.remove(file_path)
+                            self.logger.debug(f"Removed (working dir): {relative_path} (pattern: {matching_pattern})")
+                        except Exception as e:
+                            self.logger.warning(f"Failed to remove {relative_path}: {str(e)}")
+        
+        # Clean git index files
+        self.logger.debug("Scanning git index for sensitive files")
+        try:
+            # Get list of files tracked by git
+            tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
+            
+            files_to_remove_from_index = []
+            
+            for tracked_file in tracked_files:
+                # Check if tracked file matches any sensitive pattern
+                should_remove = False
+                matching_pattern = None
+                
+                for pattern in patterns_to_clean:
+                    if fnmatch.fnmatch(tracked_file, pattern) or fnmatch.fnmatch(os.path.basename(tracked_file), pattern):
+                        should_remove = True
+                        matching_pattern = pattern
+                        break
+                
+                if should_remove:
+                    cleanup_results["git_index"].append(tracked_file)
+                    files_to_remove_from_index.append(tracked_file)
+                    
+                    if dry_run:
+                        self.logger.info(f"Would remove (git index): {tracked_file} (pattern: {matching_pattern})")
+                    else:
+                        self.logger.debug(f"Marking for git index removal: {tracked_file} (pattern: {matching_pattern})")
+            
+            # Remove files from git index in batch
+            if files_to_remove_from_index and not dry_run:
+                try:
+                    # Use git rm --cached to remove from index while preserving working directory files we want to keep
+                    for file_to_remove in files_to_remove_from_index:
+                        # Only remove from index if file still exists (might have been removed from working dir above)
+                        file_full_path = os.path.join(self.repo_root, file_to_remove)
+                        if not os.path.exists(file_full_path):
+                            # File was removed from working dir, use git rm
+                            self.run_git(["rm", "--cached", "--ignore-unmatch", file_to_remove], cwd=self.repo_root)
+                        else:
+                            # File still exists in working dir, just remove from index
+                            self.run_git(["rm", "--cached", file_to_remove], cwd=self.repo_root)
+                    
+                    self.logger.info(f"Removed {len(files_to_remove_from_index)} files from git index")
+                except Exception as e:
+                    self.logger.error(f"Failed to remove files from git index: {str(e)}")
+                        
+        except Exception as e:
+            self.logger.warning(f"Failed to scan git index: {str(e)}")
+        
+        # Log summary
+        total_cleaned = len(cleanup_results["working_dir"]) + len(cleanup_results["git_index"])
+        action_word = "Would clean" if dry_run else "Cleaned"
+        self.logger.info(f"{action_word} {total_cleaned} sensitive files ({len(cleanup_results['working_dir'])} from working dir, {len(cleanup_results['git_index'])} from git index)")
+        
+        return cleanup_results
+    
+    def _log_cleanup_summary(self, cleanup_results: Dict[str, List[str]], gitkeep_results: Dict[str, List[str]]) -> None:
+        """
+        Log comprehensive cleanup summary for adoption process.
+        
+        Args:
+            cleanup_results: Results from _cleanup_sensitive_files()
+            gitkeep_results: Results from manage_gitkeep_files()
+        """
+        self.logger.info("=== REPOSITORY ADOPTION CLEANUP SUMMARY ===")
+        
+        # Sensitive files cleanup summary
+        total_sensitive = len(cleanup_results.get("working_dir", [])) + len(cleanup_results.get("git_index", []))
+        if total_sensitive > 0:
+            self.logger.info(f"Cleaned {total_sensitive} sensitive files:")
+            
+            if cleanup_results.get("working_dir"):
+                self.logger.info(f"  Working directory: {len(cleanup_results['working_dir'])} files")
+                if self.verbose >= 2:
+                    for file_path in cleanup_results["working_dir"][:5]:
+                        self.logger.info(f"    - {file_path}")
+                    if len(cleanup_results["working_dir"]) > 5:
+                        self.logger.info(f"    ... and {len(cleanup_results['working_dir']) - 5} more")
+            
+            if cleanup_results.get("git_index"):
+                self.logger.info(f"  Git index: {len(cleanup_results['git_index'])} files")
+                if self.verbose >= 2:
+                    for file_path in cleanup_results["git_index"][:5]:
+                        self.logger.info(f"    - {file_path}")
+                    if len(cleanup_results["git_index"]) > 5:
+                        self.logger.info(f"    ... and {len(cleanup_results['git_index']) - 5} more")
+        else:
+            self.logger.info("No sensitive files found to clean")
+        
+        # .gitkeep management summary
+        total_gitkeep = len(gitkeep_results.get("added", [])) + len(gitkeep_results.get("removed", []))
+        if total_gitkeep > 0:
+            self.logger.info(f"Managed {total_gitkeep} .gitkeep files:")
+            
+            if gitkeep_results.get("added"):
+                self.logger.info(f"  Added to empty directories: {len(gitkeep_results['added'])} files")
+                if self.verbose >= 2:
+                    for file_path in gitkeep_results["added"][:3]:
+                        self.logger.info(f"    + {file_path}")
+                    if len(gitkeep_results["added"]) > 3:
+                        self.logger.info(f"    ... and {len(gitkeep_results['added']) - 3} more")
+            
+            if gitkeep_results.get("removed"):
+                self.logger.info(f"  Removed from non-empty directories: {len(gitkeep_results['removed'])} files")
+                if self.verbose >= 2:
+                    for file_path in gitkeep_results["removed"][:3]:
+                        self.logger.info(f"    - {file_path}")
+                    if len(gitkeep_results["removed"]) > 3:
+                        self.logger.info(f"    ... and {len(gitkeep_results['removed']) - 3} more")
+        else:
+            self.logger.info("No .gitkeep file changes needed")
+        
+        self.logger.info("=== END CLEANUP SUMMARY ===")
+
+    def _generate_repokit_config(self) -> None:
+        """
+        Generate .repokit.json configuration file with RepoKit signature.
+        
+        This file serves as the definitive marker that a project is RepoKit-managed
+        and contains metadata about the RepoKit setup.
+        """
+        import datetime
+        
+        config_path = os.path.join(self.repo_root, ".repokit.json")
+        
+        # Build configuration with RepoKit signature
+        repokit_config = {
+            "repokit_managed": True,
+            "generated_by": "repokit",
+            "version": "0.3.0",  # Current RepoKit version
+            "created_at": datetime.datetime.now().isoformat() + "Z",
+            "project_name": self.project_name,
+            "language": self.config.get("language", "generic"),
+            "branch_strategy": self.config.get("branch_strategy", "standard"),
+            "private_branch": self.config.get("private_branch", "private"),
+        }
+        
+        # Add additional config if available
+        if self.config.get("description"):
+            repokit_config["description"] = self.config["description"]
+        
+        if self.config.get("user"):
+            repokit_config["author"] = self.config["user"]
+        
+        # Write configuration file
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(repokit_config, f, indent=2)
+            
+            self.logger.info(f"Generated RepoKit configuration: {config_path}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to generate RepoKit configuration: {str(e)}")
 
     def _generate_badges(self, language: str) -> str:
         """Generate GitHub workflow badges based on language and configuration."""

@@ -263,16 +263,28 @@ class ProjectAnalyzer:
 
     def _determine_project_type(self) -> str:
         """Determine project type based on structure and content."""
-        # Check if it's already a RepoKit project
-        repokit_indicators = [
-            "CLAUDE.md",
-            os.path.join("private", "claude"),
-            ".repokit.json",
-        ]
-
-        for indicator in repokit_indicators:
-            if os.path.exists(os.path.join(self.target_dir, indicator)):
+        # Check if it's definitively a RepoKit-managed project
+        repokit_config_path = os.path.join(self.target_dir, ".repokit.json")
+        if os.path.exists(repokit_config_path):
+            try:
+                with open(repokit_config_path, 'r') as f:
+                    config = json.load(f)
+                
+                # Check for RepoKit signature fields
+                if config.get("repokit_managed") or config.get("generated_by") == "repokit":
+                    return "repokit"
+                
+                # Even non-empty .repokit.json suggests RepoKit intent
+                if config:  # Non-empty config file
+                    return "repokit"
+                    
+            except (json.JSONDecodeError, IOError):
+                # If .repokit.json exists but is invalid, treat as RepoKit attempt
                 return "repokit"
+        
+        # Check for RepoKit-like structure (but not definitively RepoKit-managed)
+        if self._has_repokit_structure():
+            return "repokit_like"
 
         # Check for empty directory
         try:
@@ -437,6 +449,24 @@ class ProjectAnalyzer:
             ]
 
         return steps
+
+    def _has_repokit_structure(self) -> bool:
+        """
+        Check for RepoKit-specific directory structure patterns.
+        
+        Returns:
+            True if directory structure suggests RepoKit-like organization
+        """
+        # Check for RepoKit standard directories
+        repokit_dirs = ["private", "logs", "scripts", "tests", "docs"]
+        found_dirs = 0
+        
+        for directory in repokit_dirs:
+            if os.path.exists(os.path.join(self.target_dir, directory)):
+                found_dirs += 1
+        
+        # Require majority of RepoKit directories to suggest RepoKit structure
+        return found_dirs >= len(repokit_dirs) * 0.6
 
 
 class DirectoryAnalyzer:
