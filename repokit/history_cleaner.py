@@ -78,6 +78,7 @@ class HistoryCleaner:
         'CLAUDE.md',
         '.claude',
         '__private__',
+        '*~',  # Vim backup files
     ]
     
     # Windows reserved names that cause issues
