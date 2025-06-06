@@ -958,19 +958,13 @@ exit 0
                 # Remove from git index and working directory
                 for path in paths_to_remove:
                     try:
-                        # Remove from git index
-                        self.run_git(["rm", "-r", "--cached", path], cwd=self.repo_root)
-                        self.logger.debug(f"Removed {path} from git index")
+                        # Remove from git index (but NOT from working directory)
+                        # Files will be ignored via .gitignore but preserved in private branch
+                        self.run_git(["rm", "-r", "--cached", "--ignore-unmatch", path], cwd=self.repo_root, check=False)
+                        self.logger.debug(f"Removed {path} from git index for public branch {branch_name}")
                         
-                        # Physically remove from working directory
-                        full_path = os.path.join(self.repo_root, path)
-                        if os.path.exists(full_path):
-                            import shutil
-                            if os.path.isdir(full_path):
-                                shutil.rmtree(full_path)
-                            else:
-                                os.remove(full_path)
-                            self.logger.info(f"Removed {path} from public branch {branch_name}")
+                        # DO NOT physically remove files - they should remain for private branch
+                        # The .gitignore will prevent them from being tracked in this public branch
                     except Exception as e:
                         self.logger.warning(f"Failed to remove {path}: {str(e)}")
             
