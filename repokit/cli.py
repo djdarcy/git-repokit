@@ -2305,6 +2305,8 @@ def main() -> int:
                 # Override the project_root and repo_root to adopt in-place
                 repo_manager.project_root = os.path.dirname(dir_path)
                 repo_manager.repo_root = dir_path
+                # Fix github_root path after override to ensure proper template deployment
+                repo_manager.github_root = os.path.join(repo_manager.project_root, "github")
                 
                 # Set up repository structure (this will add missing RepoKit structure)
                 success = repo_manager.setup_repository()
