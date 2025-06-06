@@ -30,7 +30,11 @@ DEFAULT_SENSITIVE_PATTERNS = [
     "*.backup",
     "*.bak",
     "*~",  # Vim backup files
-    "*.*~"  # Vim backup files (multiple extensions)
+    "*.*~",  # Vim backup files (multiple extensions)
+    "logs/*",  # All files in logs directory
+    "logs/**/*",  # All files in logs subdirectories
+    "revisions/*",  # All files in revisions directory
+    "revisions/**/*",  # All files in revisions subdirectories
 ]
 
 # Default branch configurations for BranchContext
