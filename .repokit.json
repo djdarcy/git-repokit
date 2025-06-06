@@ -1,0 +1,126 @@
+{
+    "name": "my-project",
+    "description": "A new project repository",
+    "language": "generic",
+    "default_branch": "main",
+    "branches": [
+        "main",
+        "dev",
+        "staging",
+        "test",
+        "live"
+    ],
+    "worktrees": [
+        "main",
+        "dev"
+    ],
+    "directories": [
+        "convos",
+        "docs",
+        "logs",
+        "private",
+        "revisions",
+        "scripts",
+        "tests"
+    ],
+    "private_dirs": [
+        "private",
+        "convos",
+        "logs"
+    ],
+    "private_branch": "private",
+    "github": true,
+    "use_github_noreply": true,
+    "user": {
+        "name": "",
+        "email": ""
+    },
+    "branch_config": {
+        "branch_directories": {
+            "main": "github",
+            "dev": "dev"
+        },
+        "branch_roles": {
+            "main": "production",
+            "dev": "development",
+            "staging": "pre-release",
+            "test": "testing",
+            "live": "live",
+            "private": "personal"
+        },
+        "branch_flow": {
+            "private": [
+                "dev"
+            ],
+            "dev": [
+                "staging",
+                "test"
+            ],
+            "test": [
+                "staging"
+            ],
+            "staging": [
+                "main"
+            ],
+            "main": [
+                "live"
+            ]
+        }
+    },
+    "branch_strategy": "standard",
+    "branch_strategies": {
+        "standard": {
+            "branches": [
+                "main",
+                "dev",
+                "staging",
+                "test",
+                "live"
+            ],
+            "worktrees": [
+                "main",
+                "dev"
+            ],
+            "private_branch": "private"
+        },
+        "simple": {
+            "branches": [
+                "main",
+                "dev"
+            ],
+            "worktrees": [
+                "main"
+            ],
+            "private_branch": "private"
+        },
+        "gitflow": {
+            "branches": [
+                "main",
+                "develop",
+                "release",
+                "hotfix"
+            ],
+            "worktrees": [
+                "main",
+                "develop"
+            ],
+            "private_branch": "private"
+        },
+        "github-flow": {
+            "branches": [
+                "main"
+            ],
+            "worktrees": [
+                "main"
+            ],
+            "private_branch": "private"
+        },
+        "minimal": {
+            "branches": [
+                "main"
+            ],
+            "worktrees": [],
+            "private_branch": "main"
+        }
+    }
+}

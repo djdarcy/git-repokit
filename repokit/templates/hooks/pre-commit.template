@@ -1,5 +1,22 @@
 #!/bin/sh
-# Pre-commit hook to prevent committing private content
+# Pre-commit hook to prevent committing private content to public branches
+
+# Get current branch name
+current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+
+# Define private branches where private content is allowed
+case "$current_branch" in
+    private|prototype|experiment/*|spike/*)
+        echo "Private content allowed on branch: $current_branch"
+        exit 0
+        ;;
+    feature/*|dev|main|staging|test|live|master)
+        echo "Checking for private content on public branch: $current_branch"
+        ;;
+    *)
+        echo "Checking for private content on branch: $current_branch"
+        ;;
+esac
 
 # Check for private directories
 for file in $(git diff --cached --name-only); do

@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
 
+from .defaults import DEFAULT_PRIVATE_DIRS
+
 
 class GitManager:
     """
@@ -458,7 +460,7 @@ class DirectoryAnalyzer:
     ]
 
     # Private directories that shouldn't be checked in
-    PRIVATE_DIRS = ["private", "convos", "logs"]
+    PRIVATE_DIRS = DEFAULT_PRIVATE_DIRS
 
     # Special directories that need special handling
     SPECIAL_DIRS = [".git", ".github", ".vscode"]

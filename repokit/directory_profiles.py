@@ -12,6 +12,8 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Set, Any, Optional
 
+from .defaults import DEFAULT_PRIVATE_DIRS as CENTRALIZED_PRIVATE_DIRS
+
 # Set up logging
 logger = logging.getLogger("repokit.directories")
 
@@ -57,8 +59,8 @@ DEFAULT_GROUPS = {
 
 # Private directories (not committed to git)
 DEFAULT_PRIVATE_DIRS = {
-    "standard": ["private", "convos", "logs", "credentials"],
-    "enhanced": ["private", "convos", "logs", "credentials", "secrets", "local"],
+    "standard": CENTRALIZED_PRIVATE_DIRS.copy(),
+    "enhanced": CENTRALIZED_PRIVATE_DIRS + ["credentials", "secrets", "local"],
 }
 
 # Directory type mapping (conceptual → actual name)
@@ -395,3 +397,76 @@ class DirectoryProfileManager:
             return "standard"
 
         return best_profile[0]
+
+    def manage_gitkeep_files(self, base_path: str, recursive: bool = True) -> Dict[str, List[str]]:
+        """
+        Manage .gitkeep files based on directory contents.
+        
+        Adds .gitkeep to empty directories and removes .gitkeep from non-empty directories.
+        
+        Args:
+            base_path: Base path to manage
+            recursive: Whether to process subdirectories recursively
+            
+        Returns:
+            Dictionary with added and removed .gitkeep files
+        """
+        result = {"added": [], "removed": []}
+        
+        def process_directory(dir_path: str, relative_path: str = ""):
+            """Process a single directory for .gitkeep management."""
+            if not os.path.isdir(dir_path):
+                return
+                
+            gitkeep_path = os.path.join(dir_path, ".gitkeep")
+            gitkeep_exists = os.path.exists(gitkeep_path)
+            
+            # Get all items in directory (excluding .gitkeep itself)
+            try:
+                items = [item for item in os.listdir(dir_path) if item != ".gitkeep"]
+            except PermissionError:
+                logger.warning(f"Permission denied accessing directory: {dir_path}")
+                return
+            
+            # Filter out hidden files and directories that should be ignored
+            non_hidden_items = [item for item in items if not item.startswith(".")]
+            
+            # Check if directory is effectively empty (only has hidden files or .gitkeep)
+            is_empty = len(non_hidden_items) == 0
+            
+            # Manage .gitkeep based on directory state
+            if is_empty and not gitkeep_exists:
+                # Add .gitkeep to empty directory
+                try:
+                    with open(gitkeep_path, "w") as f:
+                        f.write("# This file ensures the directory is tracked by Git\n")
+                    result["added"].append(os.path.join(relative_path, ".gitkeep") if relative_path else ".gitkeep")
+                    logger.debug(f"Added .gitkeep to empty directory: {dir_path}")
+                except PermissionError:
+                    logger.warning(f"Permission denied creating .gitkeep in: {dir_path}")
+            elif not is_empty and gitkeep_exists:
+                # Remove .gitkeep from non-empty directory
+                try:
+                    os.remove(gitkeep_path)
+                    result["removed"].append(os.path.join(relative_path, ".gitkeep") if relative_path else ".gitkeep")
+                    logger.debug(f"Removed .gitkeep from non-empty directory: {dir_path}")
+                except PermissionError:
+                    logger.warning(f"Permission denied removing .gitkeep from: {dir_path}")
+                    
+            # Process subdirectories recursively if requested
+            if recursive:
+                for item in items:
+                    item_path = os.path.join(dir_path, item)
+                    if os.path.isdir(item_path) and not item.startswith("."):
+                        item_relative = os.path.join(relative_path, item) if relative_path else item
+                        process_directory(item_path, item_relative)
+        
+        # Start processing from base path
+        process_directory(base_path)
+        
+        if result["added"] or result["removed"]:
+            logger.info(f"Managed .gitkeep files: {len(result['added'])} added, {len(result['removed'])} removed")
+        else:
+            logger.debug("No .gitkeep file changes needed")
+            
+        return result
