@@ -1311,7 +1311,7 @@ def setup_logging(verbosity: int, quiet: bool = False) -> None:
     Set up logging based on verbosity level.
 
     Args:
-        verbosity: Verbosity level (0-3)
+        verbosity: Verbosity level (0-3+)
         quiet: Whether to suppress all output except errors
     """
     if quiet:
@@ -1319,10 +1319,10 @@ def setup_logging(verbosity: int, quiet: bool = False) -> None:
     else:
         # Map verbosity levels to logging levels
         log_levels = {
-            0: logging.WARNING,  # Default
-            1: logging.INFO,  # -v
-            2: logging.DEBUG,  # -vv
-            3: logging.DEBUG,  # -vvv (more detailed debug)
+            0: logging.WARNING,  # Default - only warnings and errors
+            1: logging.INFO,     # -v - basic operations
+            2: logging.DEBUG,    # -vv - file operations and detailed flow
+            3: logging.DEBUG,    # -vvv - pattern matching and cleanup details
         }
         # Cap at maximum level
         capped_verbosity = min(verbosity, 3)
@@ -1348,9 +1348,24 @@ def setup_logging(verbosity: int, quiet: bool = False) -> None:
     # Get logger for repokit
     logger = logging.getLogger("repokit")
 
+    # Set up verbosity-specific loggers for detailed debugging
+    if verbosity >= 2:
+        # Enable detailed file operation logging
+        logging.getLogger("repokit.utils").setLevel(logging.DEBUG)
+        logging.getLogger("repokit.repo_manager").setLevel(logging.DEBUG)
+        
+    if verbosity >= 3:
+        # Enable pattern matching and cleanup debugging
+        logging.getLogger("repokit.cleanup").setLevel(logging.DEBUG)
+        logging.getLogger("repokit.patterns").setLevel(logging.DEBUG)
+
     # Log verbosity level for debugging
     if verbosity >= 1:
-        logger.info(f"Verbosity level: {verbosity}")
+        logger.info(f"Verbosity level: {verbosity} (-{'v' * verbosity})")
+        if verbosity >= 2:
+            logger.info("File operations debugging enabled")
+        if verbosity >= 3:
+            logger.info("Pattern matching and cleanup debugging enabled")
 
 
 def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:

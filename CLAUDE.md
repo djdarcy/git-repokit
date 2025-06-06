@@ -51,6 +51,29 @@ cd test_runs  # Standardized location
 python -m repokit create test-project --dir-profile minimal
 ```
 
+### UNCtools Testing Protocol
+**CRITICAL**: When testing repository adoption with UNCtools, ALWAYS follow this protocol:
+
+1. **Always use a fresh copy from the original backup**:
+   ```bash
+   # Copy from clean backup
+   cp -r /mnt/c/code/git-repokit-test/UNC-backup-original <target>
+   ```
+
+2. **Use standardized naming for test copies**:
+   ```
+   Format: YYYY-MM-DD__HH-MM-SS__unctools_(BRANCH)_(test)
+   
+   Examples:
+   - 2025-06-06__15-30-00__unctools_dev_test
+   - 2025-06-06__15-45-00__unctools_main_test
+   - 2025-06-06__16-00-00__unctools_private_debug
+   ```
+
+3. **Never modify the original backup** - it must remain pristine for future tests
+
+4. **Document each test run** in `private/claude/` with results and any issues found
+
 ## Development Workflow
 
 ### Branch Strategy

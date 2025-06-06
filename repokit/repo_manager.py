@@ -120,7 +120,14 @@ class RepoManager:
 
             # Clean up sensitive files and manage .gitkeep files for adopted repositories
             if self.config.get("is_adoption", False):
-                cleanup_results = self._cleanup_sensitive_files()
+                # Get current branch for context-aware cleanup
+                try:
+                    current_branch = self.run_git(["branch", "--show-current"], cwd=self.repo_root)
+                except Exception:
+                    current_branch = None
+                
+                # Perform branch-aware cleanup
+                cleanup_results = self._cleanup_sensitive_files(branch_context=current_branch)
                 gitkeep_results = self.manage_gitkeep_files()
                 self._log_cleanup_summary(cleanup_results, gitkeep_results)
 
@@ -1590,24 +1597,28 @@ exit 0
         }
         return commands.get(language, commands["generic"])
 
-    def _cleanup_sensitive_files(self, dry_run: bool = False) -> Dict[str, List[str]]:
+    def _cleanup_sensitive_files(self, branch_context: Optional[str] = None, dry_run: bool = False) -> Dict[str, List[str]]:
         """
-        Comprehensive cleanup of sensitive files during repository adoption.
+        Branch-aware cleanup of sensitive files during repository adoption.
         
-        Uses DEFAULT_SENSITIVE_PATTERNS to identify and remove files that
-        match our sensitive content patterns. Handles both working directory
-        and git index cleanup.
+        This method performs intelligent cleanup based on branch context:
+        - For private branches: Only clean git index, preserve working directory
+        - For public branches: Clean both working directory and git index
         
         Args:
+            branch_context: Branch we're cleaning for (e.g. 'private', 'dev', 'main')
             dry_run: If True, only report what would be cleaned
             
         Returns:
             Dictionary with 'working_dir' and 'git_index' lists of cleaned files
         """
         import fnmatch
-        import glob
+        from pathlib import Path
         
-        self.logger.info("Cleaning up sensitive files during repository adoption")
+        # Set up detailed logging for debugging
+        cleanup_logger = logging.getLogger("repokit.cleanup")
+        
+        cleanup_logger.info(f"Starting sensitive file cleanup (branch: {branch_context}, dry_run: {dry_run})")
         
         cleanup_results = {
             "working_dir": [],
@@ -1622,96 +1633,133 @@ exit 0
         if config_patterns:
             patterns_to_clean.extend(config_patterns)
         
-        if self.verbose >= 1:
-            self.logger.info(f"Using {len(patterns_to_clean)} sensitive patterns for cleanup: {patterns_to_clean}")
+        # Determine if this is a private branch
+        private_branches = DEFAULT_PRIVATE_BRANCHES + self.config.get("private_branches", [])
+        is_private_branch = branch_context in private_branches
         
-        # Clean working directory files
-        self.logger.debug("Scanning working directory for sensitive files")
-        for root, dirs, files in os.walk(self.repo_root):
-            # Skip .git directory
-            if ".git" in root.split(os.sep):
-                continue
-                
-            for file in files:
-                file_path = os.path.join(root, file)
-                relative_path = os.path.relpath(file_path, self.repo_root)
-                
-                # Check if file matches any sensitive pattern
-                should_remove = False
-                matching_pattern = None
-                
-                for pattern in patterns_to_clean:
-                    # Handle different pattern types
-                    if fnmatch.fnmatch(relative_path, pattern) or fnmatch.fnmatch(file, pattern):
-                        should_remove = True
-                        matching_pattern = pattern
-                        break
-                
-                if should_remove:
-                    cleanup_results["working_dir"].append(relative_path)
-                    
-                    if dry_run:
-                        self.logger.info(f"Would remove (working dir): {relative_path} (pattern: {matching_pattern})")
-                    else:
-                        try:
-                            os.remove(file_path)
-                            self.logger.debug(f"Removed (working dir): {relative_path} (pattern: {matching_pattern})")
-                        except Exception as e:
-                            self.logger.warning(f"Failed to remove {relative_path}: {str(e)}")
+        cleanup_logger.info(f"Branch context: {branch_context}")
+        cleanup_logger.info(f"Is private branch: {is_private_branch}")
+        cleanup_logger.info(f"Using {len(patterns_to_clean)} sensitive patterns: {patterns_to_clean}")
         
-        # Clean git index files
-        self.logger.debug("Scanning git index for sensitive files")
-        try:
-            # Get list of files tracked by git
-            tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
-            
-            files_to_remove_from_index = []
-            
-            for tracked_file in tracked_files:
-                # Check if tracked file matches any sensitive pattern
-                should_remove = False
-                matching_pattern = None
-                
-                for pattern in patterns_to_clean:
-                    if fnmatch.fnmatch(tracked_file, pattern) or fnmatch.fnmatch(os.path.basename(tracked_file), pattern):
-                        should_remove = True
-                        matching_pattern = pattern
-                        break
-                
-                if should_remove:
-                    cleanup_results["git_index"].append(tracked_file)
-                    files_to_remove_from_index.append(tracked_file)
+        # For private branches, we preserve working directory files but clean git index
+        # For public branches, we clean both working directory and git index
+        clean_working_dir = not is_private_branch
+        clean_git_index = True  # Always clean git index
+        
+        cleanup_logger.info(f"Will clean working directory: {clean_working_dir}")
+        cleanup_logger.info(f"Will clean git index: {clean_git_index}")
+        
+        # Clean working directory files (only for public branches)
+        if clean_working_dir:
+            cleanup_logger.debug("Scanning working directory for sensitive files")
+            for root, dirs, files in os.walk(self.repo_root):
+                # Skip .git directory
+                if ".git" in root.split(os.sep):
+                    continue
                     
-                    if dry_run:
-                        self.logger.info(f"Would remove (git index): {tracked_file} (pattern: {matching_pattern})")
-                    else:
-                        self.logger.debug(f"Marking for git index removal: {tracked_file} (pattern: {matching_pattern})")
-            
-            # Remove files from git index in batch
-            if files_to_remove_from_index and not dry_run:
-                try:
-                    # Use git rm --cached to remove from index while preserving working directory files we want to keep
-                    for file_to_remove in files_to_remove_from_index:
-                        # Only remove from index if file still exists (might have been removed from working dir above)
-                        file_full_path = os.path.join(self.repo_root, file_to_remove)
-                        if not os.path.exists(file_full_path):
-                            # File was removed from working dir, use git rm
-                            self.run_git(["rm", "--cached", "--ignore-unmatch", file_to_remove], cwd=self.repo_root)
-                        else:
-                            # File still exists in working dir, just remove from index
-                            self.run_git(["rm", "--cached", file_to_remove], cwd=self.repo_root)
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, self.repo_root)
                     
-                    self.logger.info(f"Removed {len(files_to_remove_from_index)} files from git index")
-                except Exception as e:
-                    self.logger.error(f"Failed to remove files from git index: {str(e)}")
+                    # Check if file matches any sensitive pattern
+                    should_remove = False
+                    matching_pattern = None
+                    
+                    for pattern in patterns_to_clean:
+                        # Improved pattern matching - check both full path and filename
+                        if (fnmatch.fnmatch(relative_path, pattern) or 
+                            fnmatch.fnmatch(file, pattern) or
+                            fnmatch.fnmatch(str(Path(relative_path)), pattern)):
+                            should_remove = True
+                            matching_pattern = pattern
+                            if self.verbose >= 3:
+                                cleanup_logger.debug(f"Pattern '{pattern}' matched file '{relative_path}'")
+                            break
+                    
+                    if should_remove:
+                        cleanup_results["working_dir"].append(relative_path)
                         
-        except Exception as e:
-            self.logger.warning(f"Failed to scan git index: {str(e)}")
+                        if dry_run:
+                            cleanup_logger.info(f"Would remove (working dir): {relative_path} (pattern: {matching_pattern})")
+                        else:
+                            try:
+                                os.remove(file_path)
+                                cleanup_logger.debug(f"Removed (working dir): {relative_path} (pattern: {matching_pattern})")
+                            except Exception as e:
+                                cleanup_logger.warning(f"Failed to remove {relative_path}: {str(e)}")
+        else:
+            cleanup_logger.info("Skipping working directory cleanup (private branch - files preserved)")
+        
+        # Clean git index files (always done)
+        if clean_git_index:
+            cleanup_logger.debug("Scanning git index for sensitive files")
+            try:
+                # Get list of files tracked by git
+                tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
+                
+                files_to_remove_from_index = []
+                
+                for tracked_file in tracked_files:
+                    # Check if tracked file matches any sensitive pattern
+                    should_remove = False
+                    matching_pattern = None
+                    
+                    for pattern in patterns_to_clean:
+                        if (fnmatch.fnmatch(tracked_file, pattern) or 
+                            fnmatch.fnmatch(os.path.basename(tracked_file), pattern) or
+                            fnmatch.fnmatch(str(Path(tracked_file)), pattern)):
+                            should_remove = True
+                            matching_pattern = pattern
+                            if self.verbose >= 3:
+                                cleanup_logger.debug(f"Pattern '{pattern}' matched tracked file '{tracked_file}'")
+                            break
+                    
+                    if should_remove:
+                        cleanup_results["git_index"].append(tracked_file)
+                        files_to_remove_from_index.append(tracked_file)
+                        
+                        if dry_run:
+                            cleanup_logger.info(f"Would remove (git index): {tracked_file} (pattern: {matching_pattern})")
+                        else:
+                            cleanup_logger.debug(f"Marking for git index removal: {tracked_file} (pattern: {matching_pattern})")
+                
+                # Remove files from git index in batch
+                if files_to_remove_from_index and not dry_run:
+                    try:
+                        for file_to_remove in files_to_remove_from_index:
+                            file_full_path = os.path.join(self.repo_root, file_to_remove)
+                            if not os.path.exists(file_full_path) or clean_working_dir:
+                                # File was removed from working dir or we don't want to preserve it
+                                self.run_git(["rm", "--cached", "--ignore-unmatch", file_to_remove], cwd=self.repo_root)
+                                cleanup_logger.debug(f"Removed from git index: {file_to_remove}")
+                            else:
+                                # File still exists in working dir and we want to preserve it
+                                self.run_git(["rm", "--cached", file_to_remove], cwd=self.repo_root)
+                                cleanup_logger.debug(f"Removed from git index (preserved in working dir): {file_to_remove}")
+                        
+                        cleanup_logger.info(f"Removed {len(files_to_remove_from_index)} files from git index")
+                    except Exception as e:
+                        cleanup_logger.error(f"Failed to remove files from git index: {str(e)}")
+                            
+            except Exception as e:
+                cleanup_logger.warning(f"Failed to scan git index: {str(e)}")
         
         # Log summary
         total_cleaned = len(cleanup_results["working_dir"]) + len(cleanup_results["git_index"])
         action_word = "Would clean" if dry_run else "Cleaned"
-        self.logger.info(f"{action_word} {total_cleaned} sensitive files ({len(cleanup_results['working_dir'])} from working dir, {len(cleanup_results['git_index'])} from git index)")
+        cleanup_logger.info(f"{action_word} {total_cleaned} sensitive files total")
+        cleanup_logger.info(f"  Working directory: {len(cleanup_results['working_dir'])} files")
+        cleanup_logger.info(f"  Git index: {len(cleanup_results['git_index'])} files")
+        
+        # Show some example files cleaned (for debugging)
+        if self.verbose >= 2 and not dry_run:
+            all_cleaned = cleanup_results["working_dir"] + cleanup_results["git_index"]
+            if all_cleaned:
+                cleanup_logger.info("Example files cleaned:")
+                for file_path in all_cleaned[:5]:
+                    cleanup_logger.info(f"  - {file_path}")
+                if len(all_cleaned) > 5:
+                    cleanup_logger.info(f"  ... and {len(all_cleaned) - 5} more")
         
         return cleanup_results
     

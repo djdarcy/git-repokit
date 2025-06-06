@@ -88,7 +88,7 @@ BRANCH_SPECIFIC_EXCLUDES = {
     "live": DEFAULT_PRIVATE_DIRS + DEFAULT_SENSITIVE_FILES,
 }
 
-# Default branch configurations
+# Default branch configurations - centralized from directory_analyzer.py
 DEFAULT_BRANCH_STRATEGIES = {
     "simple": ["private", "dev", "main"],
     "standard": ["private", "dev", "main", "test", "staging", "live"],
@@ -97,7 +97,7 @@ DEFAULT_BRANCH_STRATEGIES = {
     "minimal": ["main"]
 }
 
-# Default directory profiles
+# Default directory profiles - centralized from directory_profiles.py
 DEFAULT_DIRECTORY_PROFILES = {
     "minimal": ["src", "tests", "docs"],
     "standard": [
@@ -109,4 +109,30 @@ DEFAULT_DIRECTORY_PROFILES = {
         "private", "convos", "revisions", "data", "examples", 
         "tools", "resources", "assets"
     ]
+}
+
+# Directory groups by purpose - centralized from directory_profiles.py
+DEFAULT_DIRECTORY_GROUPS = {
+    "development": ["src", "tests", "scripts", "tools"],
+    "documentation": ["docs", "examples", "resources"],
+    "operations": ["config", "logs", "data"],
+    "privacy": ["private", "convos", "credentials"],
+}
+
+# Directory type mapping (conceptual → actual name) - from directory_profiles.py
+DEFAULT_DIRECTORY_TYPE_MAPPING = {
+    "src": "src",  # Will be customized for each project (e.g., "repokit")
+    "tests": "tests",
+    "docs": "docs",
+    "config": "config",
+    "scripts": "scripts",
+    "private": "private",
+    "convos": "convos",
+    "logs": "logs",
+}
+
+# Enhanced private directory sets - from directory_profiles.py
+DEFAULT_PRIVATE_DIR_SETS = {
+    "standard": DEFAULT_PRIVATE_DIRS.copy(),
+    "enhanced": DEFAULT_PRIVATE_DIRS + ["credentials", "secrets", "local"],
 }
