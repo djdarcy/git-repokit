@@ -2291,7 +2291,8 @@ def main() -> int:
                     return 1
 
             # Execute adoption using enhanced RepoManager approach
-            if summary["project_type"] != "repokit" and not args.dry_run:
+            # Use RepoManager for non-repokit projects OR when publishing/templates are needed
+            if (summary["project_type"] != "repokit" or args.publish_to) and not args.dry_run:
                 # Initialize RepoManager with the merged configuration for in-place adoption
                 adopt_config["name"] = repo_name
                 # Set preserve_existing flag for adoption to avoid overwriting project files
