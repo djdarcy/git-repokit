@@ -2256,19 +2256,21 @@ def main() -> int:
                     # Initialize cleaner
                     cleaner = HistoryCleaner(repo_path=dir_path, verbose=args.verbose)
                     
-                    # Build cleaning config 
+                    # Build cleaning config using default settings
                     recipe_map = {
                         "pre-open-source": CleaningRecipe.PRE_OPEN_SOURCE,
                         "windows-safe": CleaningRecipe.WINDOWS_SAFE, 
                         "remove-secrets": CleaningRecipe.REMOVE_SECRETS
                     }
                     
-                    config = CleaningConfig(
-                        recipe=recipe_map[args.cleaning_recipe],
-                        backup_location=f"{backup_path}_pre_clean" if 'backup_path' in locals() else None,
-                        dry_run=False,
-                        force=True  # Skip confirmation prompts during adopt
-                    )
+                    # Get default config for the recipe
+                    recipe_enum = recipe_map[args.cleaning_recipe]
+                    config = cleaner._get_default_config(recipe_enum)
+                    
+                    # Override with adopt-specific settings
+                    config.backup_location = f"{backup_path}_pre_clean" if 'backup_path' in locals() else None
+                    config.dry_run = False
+                    config.force = True  # Skip confirmation prompts during adopt
                     
                     # Execute history cleaning
                     success = cleaner.clean_history(config)
