@@ -21,20 +21,21 @@ DEFAULT_SENSITIVE_FILES = [
 ]
 
 # Default sensitive file patterns (supports glob patterns)
+# Cross-platform compatible patterns using Python's fnmatch/pathlib
 DEFAULT_SENSITIVE_PATTERNS = [
     "Clipboard Text*",
-    "nul",
+    "nul",           # Windows reserved name
     "*.tmp",
-    "*.log",
+    "*.log", 
     ".env*",
     "*.backup",
     "*.bak",
-    "*~",  # Vim backup files
-    "*.*~",  # Vim backup files (multiple extensions)
-    "logs/*",  # All files in logs directory
-    "logs/**/*",  # All files in logs subdirectories
-    "revisions/*",  # All files in revisions directory
-    "revisions/**/*",  # All files in revisions subdirectories
+    "*.*~",          # Vim backup files (primary pattern for files like listall.cmd~)
+    "*~",            # Vim backup files (fallback for single extension)
+    "logs/*",        # All files in logs directory
+    "logs/**/*",     # All files in logs subdirectories  
+    "revisions/*",   # All files in revisions directory
+    "revisions/**/*", # All files in revisions subdirectories
 ]
 
 # Default branch configurations for BranchContext

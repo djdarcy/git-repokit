@@ -118,18 +118,12 @@ class RepoManager:
             if self.config.get("ai_integration"):
                 self._generate_ai_templates()
 
-            # Clean up sensitive files and manage .gitkeep files for adopted repositories
+            # Manage .gitkeep files for adopted repositories (but don't cleanup sensitive files here)
+            # Sensitive file cleanup now happens during public branch creation in _create_clean_public_branch
             if self.config.get("is_adoption", False):
-                # Get current branch for context-aware cleanup
-                try:
-                    current_branch = self.run_git(["branch", "--show-current"], cwd=self.repo_root)
-                except Exception:
-                    current_branch = None
-                
-                # Perform branch-aware cleanup
-                cleanup_results = self._cleanup_sensitive_files(branch_context=current_branch)
                 gitkeep_results = self.manage_gitkeep_files()
-                self._log_cleanup_summary(cleanup_results, gitkeep_results)
+                self.logger.info(f"Managed .gitkeep files: {len(gitkeep_results.get('added', []))} added, {len(gitkeep_results.get('removed', []))} removed")
+                # Note: Sensitive file cleanup now happens during public branch creation
 
             # Set up worktrees AFTER initial commits and branch updates
             # This is the key change - moved worktree setup to the end
@@ -993,6 +987,17 @@ exit 0
                         self.logger.error(f"CRITICAL: Failed to remove {file_path} from git index: {e}")
                         raise
             
+            # CRITICAL FIX: Perform additional sensitive file cleanup for public branch
+            # This ensures working directory files are also cleaned
+            self.logger.info(f"Performing comprehensive sensitive file cleanup for public branch '{branch_name}'")
+            cleanup_results = self._cleanup_sensitive_files(branch_context=branch_name)
+            
+            # Add cleanup results to files_removed for commit message
+            if cleanup_results.get("working_dir"):
+                files_removed.extend(cleanup_results["working_dir"])
+            if cleanup_results.get("git_index"):
+                files_removed.extend(cleanup_results["git_index"])
+            
             # Update .gitignore to ensure private content stays ignored
             self._update_gitignore_for_public_branch(context)
             
@@ -1000,13 +1005,17 @@ exit 0
             try:
                 staged_changes = self.run_git(["diff", "--cached", "--name-status"], cwd=self.repo_root)
                 if staged_changes.strip():
-                    commit_message = f"Remove private content from {branch_name} branch\n\nRemoved files:\n"
-                    for file_path in files_removed:
+                    # Deduplicate files_removed list and create commit message
+                    unique_files_removed = list(set(files_removed))
+                    commit_message = f"Remove private content from {branch_name} branch\n\nRemoved {len(unique_files_removed)} files:\n"
+                    for file_path in unique_files_removed[:10]:  # Show first 10 files
                         commit_message += f"- {file_path}\n"
+                    if len(unique_files_removed) > 10:
+                        commit_message += f"... and {len(unique_files_removed) - 10} more files\n"
                     commit_message += "\nUpdated .gitignore for public branch protection"
                     
                     self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
-                    self.logger.info(f"Committed removal of {len(files_removed)} private files from {branch_name}")
+                    self.logger.info(f"Committed removal of {len(unique_files_removed)} private files from {branch_name}")
                 else:
                     self.logger.info(f"No private content found to remove from {branch_name}")
             except Exception as e:
@@ -1666,14 +1675,22 @@ exit 0
                     matching_pattern = None
                     
                     for pattern in patterns_to_clean:
-                        # Improved pattern matching - check both full path and filename
-                        if (fnmatch.fnmatch(relative_path, pattern) or 
-                            fnmatch.fnmatch(file, pattern) or
-                            fnmatch.fnmatch(str(Path(relative_path)), pattern)):
+                        # Cross-platform pattern matching using normalized paths
+                        normalized_relative = str(Path(relative_path)).replace('\\', '/')
+                        normalized_pattern = pattern.replace('\\', '/')
+                        
+                        # Check multiple match approaches for cross-platform compatibility
+                        matches = [
+                            fnmatch.fnmatch(normalized_relative, normalized_pattern),  # Full path
+                            fnmatch.fnmatch(file, normalized_pattern),                 # Filename only
+                            fnmatch.fnmatch(str(Path(file)), normalized_pattern),     # Filename as Path
+                        ]
+                        
+                        if any(matches):
                             should_remove = True
                             matching_pattern = pattern
                             if self.verbose >= 3:
-                                cleanup_logger.debug(f"Pattern '{pattern}' matched file '{relative_path}'")
+                                cleanup_logger.debug(f"Pattern '{pattern}' matched file '{relative_path}' (normalized: '{normalized_relative}')")
                             break
                     
                     if should_remove:
@@ -1705,13 +1722,22 @@ exit 0
                     matching_pattern = None
                     
                     for pattern in patterns_to_clean:
-                        if (fnmatch.fnmatch(tracked_file, pattern) or 
-                            fnmatch.fnmatch(os.path.basename(tracked_file), pattern) or
-                            fnmatch.fnmatch(str(Path(tracked_file)), pattern)):
+                        # Cross-platform pattern matching using normalized paths (same as working directory)
+                        normalized_tracked = str(Path(tracked_file)).replace('\\', '/')
+                        normalized_pattern = pattern.replace('\\', '/')
+                        
+                        # Check multiple match approaches for cross-platform compatibility
+                        matches = [
+                            fnmatch.fnmatch(normalized_tracked, normalized_pattern),  # Full path
+                            fnmatch.fnmatch(os.path.basename(tracked_file), normalized_pattern),  # Filename only
+                            fnmatch.fnmatch(str(Path(tracked_file)), normalized_pattern),  # Filename as Path
+                        ]
+                        
+                        if any(matches):
                             should_remove = True
                             matching_pattern = pattern
                             if self.verbose >= 3:
-                                cleanup_logger.debug(f"Pattern '{pattern}' matched tracked file '{tracked_file}'")
+                                cleanup_logger.debug(f"Pattern '{pattern}' matched tracked file '{tracked_file}' (normalized: '{normalized_tracked}')")
                             break
                     
                     if should_remove:

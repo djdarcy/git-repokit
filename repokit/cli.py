@@ -2307,7 +2307,28 @@ def main() -> int:
 
             # Execute adoption using enhanced RepoManager approach
             # Use RepoManager for non-repokit projects OR when publishing/templates are needed
-            if (summary["project_type"] != "repokit" or args.publish_to) and not args.dry_run:
+            if (summary["project_type"] != "repokit" or args.publish_to):
+                if args.dry_run:
+                    print(f"\n=== DRY RUN MODE - No changes will be made ===")
+                    print(f"Would execute RepoManager setup_repository() for:")
+                    print(f"  Project: {repo_name}")
+                    print(f"  Path: {dir_path}")
+                    print(f"  Language: {adopt_config.get('language', 'generic')}")
+                    print(f"  Branch strategy: {adopt_config.get('branch_strategy', 'standard')}")
+                    print(f"  Would publish to: {args.publish_to if args.publish_to else 'none'}")
+                    print(f"  Would create backup: {hasattr(args, 'backup') and args.backup}")
+                    print(f"  Would clean history: {hasattr(args, 'clean_history') and args.clean_history}")
+                    
+                    # Show what sensitive file cleanup would do
+                    from .defaults import DEFAULT_SENSITIVE_PATTERNS
+                    print(f"\nWould clean files matching these patterns:")
+                    for pattern in DEFAULT_SENSITIVE_PATTERNS[:5]:
+                        print(f"  - {pattern}")
+                    if len(DEFAULT_SENSITIVE_PATTERNS) > 5:
+                        print(f"  ... and {len(DEFAULT_SENSITIVE_PATTERNS) - 5} more patterns")
+                    
+                    print(f"\n=== DRY RUN COMPLETE - No actual changes made ===")
+                    return 0
                 # Initialize RepoManager with the merged configuration for in-place adoption
                 adopt_config["name"] = repo_name
                 # Set preserve_existing flag for adoption to avoid overwriting project files
