@@ -150,7 +150,48 @@ except ImportError:
     
     def _get_post_checkout_hook(self) -> str:
         """Get post-checkout hook content."""
-        return '''#!/usr/bin/env python3
+        return '''#!/bin/sh
+# RepoKit Cross-Environment Post-Checkout Hook
+# This wrapper script detects the environment and calls Python appropriately
+
+# Function to detect Python command
+find_python() {
+    # Try to detect if we're on Windows
+    if [ -n "$WINDIR" ] || [ "$OSTYPE" = "msys" ] || [ "$OSTYPE" = "cygwin" ]; then
+        # Windows environment - try various Python commands
+        if command -v py >/dev/null 2>&1; then
+            echo "py"
+        elif command -v python >/dev/null 2>&1; then
+            echo "python"
+        elif command -v python3 >/dev/null 2>&1; then
+            echo "python3"
+        else
+            echo ""
+        fi
+    else
+        # Unix/Linux/WSL environment
+        if command -v python3 >/dev/null 2>&1; then
+            echo "python3"
+        elif command -v python >/dev/null 2>&1; then
+            echo "python"
+        else
+            echo ""
+        fi
+    fi
+}
+
+# Find Python command
+PYTHON_CMD=$(find_python)
+
+# If Python not found, exit gracefully
+if [ -z "$PYTHON_CMD" ]; then
+    echo "⚠️  Python not found - skipping RepoKit post-checkout tasks"
+    echo "   To enable: Install Python and ensure it's in PATH"
+    exit 0
+fi
+
+# Execute the Python script with all arguments
+$PYTHON_CMD - "$@" << 'EOF'
 """RepoKit post-checkout hook to update excludes and restore private files."""
 
 import sys
@@ -295,6 +336,7 @@ except ImportError:
     pass
 
 sys.exit(0)
+EOF
 '''
     
     def check_status(self) -> Dict[str, any]:

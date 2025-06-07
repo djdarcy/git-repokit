@@ -45,7 +45,7 @@ ALWAYS_EXCLUDE = [
     # IDE files
     ".vscode", ".idea", "*.sublime-*",
     # Temp files
-    "*.bak", "*.swp", "*.tmp", "*~",
+    "*.bak", "*.swp", "*.tmp", "*~", "*.*~",
     # Test directories
     "test*",
     # Credentials and secrets

@@ -13,6 +13,12 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
 
 from .directory_profiles import DirectoryProfileManager
+from .defaults import (
+    DEFAULT_PRIVATE_DIRS,
+    DEFAULT_SENSITIVE_FILES, 
+    DEFAULT_SENSITIVE_PATTERNS,
+    BRANCH_SPECIFIC_EXCLUDES
+)
 
 
 class ConfigManager:
@@ -57,7 +63,9 @@ class ConfigManager:
                 "scripts",
                 "tests",
             ],
-            "private_dirs": ["private", "convos", "logs"],
+            "private_dirs": DEFAULT_PRIVATE_DIRS.copy(),
+            "sensitive_files": DEFAULT_SENSITIVE_FILES.copy(),
+            "sensitive_patterns": DEFAULT_SENSITIVE_PATTERNS.copy(),
             "private_branch": "private",
             "github": True,
             "use_github_noreply": True,  # Add GitHub no-reply setting
@@ -667,4 +675,4 @@ class ConfigManager:
         
         # Ensure private_dirs is always set
         if "private_dirs" not in self.config:
-            self.config["private_dirs"] = ["private", "convos", "logs"]
+            self.config["private_dirs"] = DEFAULT_PRIVATE_DIRS.copy()

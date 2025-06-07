@@ -15,6 +15,11 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 
 from .template_engine import TemplateEngine
+from .defaults import (
+    DEFAULT_PRIVATE_DIRS, DEFAULT_SENSITIVE_FILES, DEFAULT_SENSITIVE_PATTERNS,
+    DEFAULT_PRIVATE_BRANCHES, DEFAULT_PUBLIC_BRANCHES, 
+    DEFAULT_PRIVATE_PATTERNS, DEFAULT_EXCLUDE_FROM_PUBLIC
+)
 
 
 class RepoManager:
@@ -99,6 +104,10 @@ class RepoManager:
             # Set up branches
             self._setup_branches()
 
+            # Set up private content protection BEFORE any commits
+            # This is critical to prevent private content from reaching public branches
+            self._setup_protection()
+
             # Generate template files
             self._generate_template_files()
 
@@ -109,8 +118,12 @@ class RepoManager:
             if self.config.get("ai_integration"):
                 self._generate_ai_templates()
 
-            # Set up private content protection
-            self._setup_protection()
+            # Manage .gitkeep files for adopted repositories (but don't cleanup sensitive files here)
+            # Sensitive file cleanup now happens during public branch creation in _create_clean_public_branch
+            if self.config.get("is_adoption", False):
+                gitkeep_results = self.manage_gitkeep_files()
+                self.logger.info(f"Managed .gitkeep files: {len(gitkeep_results.get('added', []))} added, {len(gitkeep_results.get('removed', []))} removed")
+                # Note: Sensitive file cleanup now happens during public branch creation
 
             # Set up worktrees AFTER initial commits and branch updates
             # This is the key change - moved worktree setup to the end
@@ -121,6 +134,9 @@ class RepoManager:
 
             # Set up GitHub integration (copy files to GitHub worktree)
             self._setup_github_integration()
+
+            # Generate RepoKit configuration file with signature
+            self._generate_repokit_config()
 
             self.logger.info(f"Repository setup complete: {self.project_name}")
             self._print_next_steps()
@@ -157,9 +173,28 @@ class RepoManager:
             dir_path = os.path.join(self.repo_root, directory)
             os.makedirs(dir_path, exist_ok=True)
 
-            # Create .gitkeep file to ensure empty directories are tracked
-            with open(os.path.join(dir_path, ".gitkeep"), "w") as f:
-                f.write("# This file ensures the directory is tracked by Git\n")
+            # .gitkeep files will be managed properly by manage_gitkeep_files() method
+            # which checks if directories are actually empty before adding .gitkeep
+
+    def manage_gitkeep_files(self, recursive: bool = True) -> Dict[str, List[str]]:
+        """
+        Manage .gitkeep files in the repository.
+        
+        Args:
+            recursive: Whether to process subdirectories recursively
+            
+        Returns:
+            Dictionary with added and removed .gitkeep files
+        """
+        from .directory_profiles import DirectoryProfileManager
+        
+        profile_manager = DirectoryProfileManager(verbose=self.verbose)
+        
+        # Manage .gitkeep files in the local repo
+        result = profile_manager.manage_gitkeep_files(self.repo_root, recursive)
+        
+        self.logger.info(f"Managed .gitkeep files: {len(result['added'])} added, {len(result['removed'])} removed")
+        return result
 
     def _init_git_repos(self) -> None:
         """Initialize git repositories."""
@@ -205,59 +240,98 @@ class RepoManager:
         """Set up repository branches."""
         self.logger.info("Setting up branches")
 
-        # Create an initial commit on main to allow branch creation
-        readme_path = os.path.join(self.repo_root, "README.md")
+        # Check if this is an adoption (existing repo) or new repo
+        is_adoption = self.config.get("is_adoption", False)
+        
+        # For new repos, create an initial commit
+        if not is_adoption:
+            # Create an initial commit on main to allow branch creation
+            readme_path = os.path.join(self.repo_root, "README.md")
 
-        # Generate README from template
-        # Get user info safely
-        user_info = self.config.get("user", {})
-        if not isinstance(user_info, dict):
-            user_info = {}
+            # Generate README from template
+            # Get user info safely
+            user_info = self.config.get("user", {})
+            if not isinstance(user_info, dict):
+                user_info = {}
 
-        context = {
-            "project_name": self.project_name,
-            "description": self.config.get("description", "A new project"),
-            "author": user_info.get("name", ""),
-            "author_email": user_info.get("email", ""),
-        }
+            context = {
+                "project_name": self.project_name,
+                "description": self.config.get("description", "A new project"),
+                "author": user_info.get("name", ""),
+                "author_email": user_info.get("email", ""),
+            }
 
-        # Try to render from template, fall back to simple content
-        if not self.template_engine.render_template_to_file(
-            "README.md", readme_path, context
-        ):
-            with open(readme_path, "w") as f:
-                f.write(f"# {self.project_name}\n\n")
-                f.write(f"{self.config.get('description', 'A new project')}\n")
+            # Check if we should preserve existing README
+            preserve_existing = self.config.get("preserve_existing", False)
+            
+            # Try to render from template, fall back to simple content
+            if not self.template_engine.render_template_to_file(
+                "README.md", readme_path, context, preserve_existing=preserve_existing
+            ):
+                # Only create a new README if one doesn't exist
+                if not os.path.exists(readme_path):
+                    with open(readme_path, "w") as f:
+                        f.write(f"# {self.project_name}\n\n")
+                        f.write(f"{self.config.get('description', 'A new project')}\n")
 
-        self.run_git(["add", "README.md"], cwd=self.repo_root)
-        self.run_git(["commit", "-m", "Initial commit"], cwd=self.repo_root)
+            # Only commit if there are changes to commit
+            if os.path.exists(readme_path):
+                self.run_git(["add", "README.md"], cwd=self.repo_root)
+                try:
+                    self.run_git(["commit", "-m", "Initial commit"], cwd=self.repo_root)
+                except Exception as e:
+                    # If commit fails (e.g., nothing to commit), continue
+                    self.logger.debug("Initial commit skipped (possibly nothing to commit)")
+        else:
+            # For adoptions, we already have commits
+            self.logger.info("Skipping initial commit for adoption - using existing repository history")
 
         # Create branches
         branches = self.config.get(
             "branches", ["main", "dev", "staging", "test", "live"]
         )
 
-        # Ensure the configured default branch exists
-        default_branch = self.config.get("default_branch", "main")
-        current_branch = self.run_git(["branch", "--show-current"], cwd=self.repo_root)
+        # For adoption, handle existing branch structure differently
+        is_adoption = self.config.get("is_adoption", False)
+        
+        if is_adoption:
+            # For adoption, create private branch from current branch and skip branch renames
+            private_branch = self.config.get("private_branch", "private")
+            current_branch = self.run_git(["branch", "--show-current"], cwd=self.repo_root)
+            
+            # Create private branch if it doesn't exist
+            existing_branches = self.run_git(["branch", "--list"], cwd=self.repo_root).splitlines()
+            branch_names = [b.strip().lstrip('* ') for b in existing_branches]
+            
+            if private_branch not in branch_names:
+                self.run_git(["branch", private_branch], cwd=self.repo_root)
+            
+            # Switch to private branch
+            self.run_git(["checkout", private_branch], cwd=self.repo_root)
+            
+            # Note: Public branches (main, dev) will be created in _create_initial_commit
+        else:
+            # For new repos, follow original logic
+            default_branch = self.config.get("default_branch", "main")
+            current_branch = self.run_git(["branch", "--show-current"], cwd=self.repo_root)
 
-        if current_branch != default_branch:
-            if default_branch not in branches:
-                branches.append(default_branch)
-            self.run_git(["branch", "-m", default_branch], cwd=self.repo_root)
+            if current_branch != default_branch:
+                if default_branch not in branches:
+                    branches.append(default_branch)
+                self.run_git(["branch", "-m", default_branch], cwd=self.repo_root)
 
-        # Create other branches
-        for branch in branches:
-            if branch != default_branch:  # Skip default branch which already exists
-                self.run_git(["branch", branch], cwd=self.repo_root)
+            # Create other branches
+            for branch in branches:
+                if branch != default_branch:  # Skip default branch which already exists
+                    self.run_git(["branch", branch], cwd=self.repo_root)
 
-        # Create private branch for personal work
-        private_branch = self.config.get("private_branch", "private")
-        if private_branch not in branches:
-            self.run_git(["branch", private_branch], cwd=self.repo_root)
+            # Create private branch for personal work
+            private_branch = self.config.get("private_branch", "private")
+            if private_branch not in branches:
+                self.run_git(["branch", private_branch], cwd=self.repo_root)
 
-        # Switch to private branch (we stay on private in the main repo)
-        self.run_git(["checkout", private_branch], cwd=self.repo_root)
+            # Switch to private branch (we stay on private in the main repo)
+            self.run_git(["checkout", private_branch], cwd=self.repo_root)
 
     def _setup_worktrees(self) -> None:
         """Set up git worktrees for branches."""
@@ -349,6 +423,16 @@ class RepoManager:
 
         # Get language to determine specific templates
         language = self.config.get("language", "generic")
+        
+        # Check if we should preserve existing files (for adoption)
+        preserve_existing = self.config.get("preserve_existing", False)
+        
+        # Helper function to render templates with preserve_existing
+        def render_template(template_name, output_path, context_dict=None, category="common"):
+            ctx = context_dict or context
+            return self.template_engine.render_template_to_file(
+                template_name, output_path, ctx, category=category, preserve_existing=preserve_existing
+            )
 
         # Context for template rendering
         context = {
@@ -373,42 +457,37 @@ class RepoManager:
         os.makedirs(issue_dir, exist_ok=True)
 
         # Generate GitHub workflow file
-        self.template_engine.render_template_to_file(
+        render_template(
             "main.yml",
             os.path.join(workflow_dir, "main.yml"),
-            context,
-            category="github/workflows",
+            category="github/workflows"
         )
 
         # Generate issue templates
-        self.template_engine.render_template_to_file(
+        render_template(
             "bug-report.md",
             os.path.join(issue_dir, "bug-report.md"),
-            context,
-            category="github/ISSUE_TEMPLATE",
+            category="github/ISSUE_TEMPLATE"
         )
 
-        self.template_engine.render_template_to_file(
+        render_template(
             "feature-request.md",
             os.path.join(issue_dir, "feature-request.md"),
-            context,
-            category="github/ISSUE_TEMPLATE",
+            category="github/ISSUE_TEMPLATE"
         )
 
         # Generate CODEOWNERS file
-        self.template_engine.render_template_to_file(
+        render_template(
             "CODEOWNERS",
             os.path.join(github_dir, "CODEOWNERS"),
-            context,
-            category="github",
+            category="github"
         )
 
         # Generate other common files
-        self.template_engine.render_template_to_file(
+        render_template(
             "CONTRIBUTING.md",
             os.path.join(self.repo_root, "CONTRIBUTING.md"),
-            context,
-            category="common",
+            category="common"
         )
 
         # Create language-specific configuration files
@@ -549,7 +628,7 @@ class RepoManager:
 
         # Get private directories from config
         private_dirs = self.config.get(
-            "private_dirs", ["private", "convos", "logs"]
+            "private_dirs", DEFAULT_PRIVATE_DIRS
         )
         
         # Only add entries that don't already exist
@@ -571,18 +650,57 @@ class RepoManager:
                     f.write("**/__private__*\n")
                 f.write("\n")
 
-        # Create pre-commit hook
+        # Create pre-commit hook using BranchContext patterns
         hooks_dir = os.path.join(self.repo_root, ".git", "hooks")
         os.makedirs(hooks_dir, exist_ok=True)
 
-        # Generate the pattern string for private directories
-        private_dirs_patterns = ""
-        for dir_name in self.config.get("private_dirs", ["private", "convos", "logs"]):
-            pattern = f"^{dir_name}/"
-            private_dirs_patterns += f'    "{pattern}"\n'
+        # Import BranchContext to get consistent patterns
+        from .branch_utils import BranchContext
+        
+        # Create context with configuration
+        branch_context = BranchContext(self.repo_root, self._get_branch_config())
+        
+        # Generate branch patterns for template
+        private_branch_patterns = "|".join(branch_context.PRIVATE_BRANCHES)
+        public_branch_patterns = "|".join(branch_context.PUBLIC_BRANCHES)
+        
+        # Add feature branch patterns (they're considered private in BranchContext)
+        private_branch_patterns += "|feature/*|feat/*|prototype/*|experiment/*|spike/*"
+        
+        # Generate private content patterns for template
+        # Convert BranchContext patterns to shell regex patterns
+        patterns = []
+        for pattern in branch_context.PRIVATE_PATTERNS:
+            if pattern.endswith('/'):
+                # Directory patterns: match files inside the directory
+                patterns.append(f"^{pattern.rstrip('/')}/")
+            elif '*' in pattern:
+                # Glob patterns: convert to regex
+                regex_pattern = pattern.replace('*', '.*').replace('**/', '.*/')
+                patterns.append(f"^{regex_pattern}")
+            else:
+                # Exact file patterns
+                patterns.append(f"^{pattern}$")
+        
+        # Add exclude patterns from public branches
+        for pattern in branch_context.EXCLUDE_FROM_PUBLIC:
+            if pattern.endswith('/'):
+                patterns.append(f"^{pattern.rstrip('/')}/")
+            elif '*' in pattern:
+                regex_pattern = pattern.replace('*', '.*').replace('**/', '.*/')
+                patterns.append(f"^{regex_pattern}")
+            else:
+                patterns.append(f"^{pattern}$")
+        
+        # Join all patterns with | for shell regex
+        private_content_regex = "|".join(patterns)
 
-        # Render pre-commit hook from template
-        context = {"private_dirs_patterns": private_dirs_patterns}
+        # Render pre-commit hook from template using BranchContext patterns
+        context = {
+            "private_branch_patterns": private_branch_patterns,
+            "public_branch_patterns": public_branch_patterns,
+            "private_content_regex": private_content_regex
+        }
 
         pre_commit_path = os.path.join(hooks_dir, "pre-commit")
         if not self.template_engine.render_template_to_file(
@@ -764,14 +882,24 @@ exit 0
         # Add all files
         self.run_git(["add", "."], cwd=self.repo_root)
 
-        # Create commit
-        self.run_git(
-            ["commit", "-m", "Initial repository setup with RepoKit"],
-            cwd=self.repo_root,
-        )
+        # Check if there's anything to commit
+        try:
+            # Use diff --cached to see if there are staged changes
+            diff_output = self.run_git(["diff", "--cached", "--name-only"], cwd=self.repo_root)
+            if diff_output.strip():
+                # Create commit only if there are changes
+                self.run_git(
+                    ["commit", "-m", "Initial repository setup with RepoKit"],
+                    cwd=self.repo_root,
+                )
+            else:
+                self.logger.info("No changes to commit in initial setup")
+        except Exception as e:
+            # If commit fails, log but continue (for adoptions)
+            self.logger.debug(f"Initial commit skipped: {str(e)}")
 
-        # Push to branches WITHOUT checking them out directly
-        # This avoids the worktree conflict issue
+        # Create public branches with safe content migration using safe-merge-dev
+        # This prevents private content from reaching public branches
         branches = self.config.get(
             "branches", ["main", "dev", "staging", "test", "live"]
         )
@@ -780,19 +908,402 @@ exit 0
         for branch in branches:
             if branch != private_branch:  # Skip private branch
                 try:
-                    # Use git push to update branches without checking out
-                    self.run_git(
-                        ["push", ".", f"{private_branch}:{branch}"], cwd=self.repo_root
-                    )
+                    # Choose approach based on whether this is an adoption
+                    is_adoption = self.config.get("is_adoption", False)
+                    
+                    if is_adoption:
+                        # Use selective approach for adoptions (privacy-first, no deletion commits)
+                        self.logger.info(f"Using selective branch creation for adoption (privacy-first)")
+                        self._create_clean_public_branch_selective(branch, private_branch)
+                    else:
+                        # Use existing approach for new repositories
+                        self.logger.info(f"Using standard branch creation for new repository")
+                        self._create_clean_public_branch(branch, private_branch)
+                    
+                    # Verify the branch is actually clean
+                    if self._verify_clean_branch(branch):
+                        self.logger.info(f"Successfully created and verified clean public branch '{branch}'")
+                    else:
+                        self.logger.error(f"Branch '{branch}' failed verification - contains private content!")
+                        
                     if self.verbose >= 2:
+                        approach = "selective" if is_adoption else "standard"
                         self.logger.debug(
-                            f"Updated branch '{branch}' from {private_branch}"
+                            f"Created clean public branch '{branch}' using {approach} approach"
                         )
                 except Exception as e:
-                    self.logger.warning(f"Failed to update branch '{branch}': {str(e)}")
+                    self.logger.warning(f"Failed to create clean public branch '{branch}': {str(e)}")
 
-        # We stay on private branch
-        # No need to check out private branch again as we're already on it
+        # Switch back to private branch for continued development
+        self.run_git(["checkout", private_branch], cwd=self.repo_root)
+
+    def _get_working_directory_files(self) -> List[str]:
+        """
+        Get all files from working directory (not git index).
+        
+        This is used for selective branch creation to examine filesystem
+        rather than git-tracked files.
+        
+        Returns:
+            List of relative file paths from repo root
+        """
+        all_files = []
+        for root, dirs, files in os.walk(self.repo_root):
+            # Skip .git directory
+            if ".git" in root.split(os.sep):
+                continue
+            for file in files:
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, self.repo_root)
+                all_files.append(relative_path)
+        return all_files
+    
+    def _filter_files_for_public_branch(self, file_list: List[str]) -> List[str]:
+        """
+        Filter out sensitive files using existing pattern infrastructure.
+        
+        Args:
+            file_list: List of file paths to filter
+            
+        Returns:
+            List of non-sensitive file paths safe for public branches
+        """
+        import fnmatch
+        from pathlib import Path
+        
+        clean_files = []
+        patterns_to_exclude = DEFAULT_SENSITIVE_PATTERNS.copy()
+        
+        # Add any additional patterns from config
+        config_patterns = self.config.get("sensitive_patterns", [])
+        if config_patterns:
+            patterns_to_exclude.extend(config_patterns)
+        
+        # Use existing BranchContext for additional pattern checking
+        from .branch_utils import BranchContext
+        context = BranchContext(self.repo_root, self._get_branch_config())
+        
+        for file_path in file_list:
+            is_sensitive = False
+            matching_pattern = None
+            
+            # Check against DEFAULT_SENSITIVE_PATTERNS
+            for pattern in patterns_to_exclude:
+                # Use same cross-platform pattern matching as cleanup
+                normalized_file = str(Path(file_path)).replace('\\', '/')
+                normalized_pattern = pattern.replace('\\', '/')
+                
+                matches = [
+                    fnmatch.fnmatch(normalized_file, normalized_pattern),
+                    fnmatch.fnmatch(os.path.basename(file_path), normalized_pattern),
+                    fnmatch.fnmatch(str(Path(file_path)), normalized_pattern),
+                ]
+                
+                if any(matches):
+                    is_sensitive = True
+                    matching_pattern = pattern
+                    break
+            
+            # Check against BranchContext patterns if not already flagged
+            if not is_sensitive:
+                # Use BranchContext to check if file should be excluded from public
+                private_files = context.check_private_files([file_path])
+                if private_files:
+                    is_sensitive = True
+                    matching_pattern = f"BranchContext: {private_files[0][1]}"
+            
+            if is_sensitive:
+                self.logger.debug(f"Excluding sensitive file from public branch: {file_path} (pattern: {matching_pattern})")
+            else:
+                clean_files.append(file_path)
+        
+        return clean_files
+    
+    def _create_clean_public_branch_selective(self, branch_name: str, source_branch: str) -> None:
+        """
+        Create public branch by selectively adding only non-sensitive files.
+        
+        This approach ensures sensitive files never enter the git history of public branches,
+        preventing privacy violations that would be created by deletion commits.
+        
+        Args:
+            branch_name: Name of the public branch to create
+            source_branch: Source branch (typically 'private')
+        """
+        try:
+            self.logger.info(f"Creating clean public branch '{branch_name}' using selective approach")
+            
+            # Get current branch to restore if something goes wrong
+            current_branch = self.run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo_root).strip()
+            
+            # Check if branch already exists
+            existing_branches = self.run_git(["branch", "--list"], cwd=self.repo_root).splitlines()
+            branch_exists = any(branch_name in branch.strip() for branch in existing_branches)
+            
+            if branch_exists:
+                self.logger.info(f"Branch '{branch_name}' already exists, will recreate with selective approach")
+                # Delete existing branch to recreate cleanly
+                self.run_git(["branch", "-D", branch_name], cwd=self.repo_root, check=False)
+            
+            # Create orphan branch (clean slate with no history)
+            self.run_git(["checkout", "--orphan", branch_name], cwd=self.repo_root)
+            
+            # Clear git index (remove all staged files from orphan)
+            self.run_git(["reset"], cwd=self.repo_root)
+            
+            # Get all files from working directory (not git index)
+            all_files = self._get_working_directory_files()
+            self.logger.info(f"Found {len(all_files)} files in working directory")
+            
+            # Filter out sensitive files using existing patterns
+            clean_files = self._filter_files_for_public_branch(all_files)
+            excluded_count = len(all_files) - len(clean_files)
+            self.logger.info(f"Filtered to {len(clean_files)} clean files ({excluded_count} sensitive files excluded)")
+            
+            # Add only clean files to git index one by one
+            for file_path in clean_files:
+                try:
+                    self.run_git(["add", file_path], cwd=self.repo_root)
+                    if self.verbose >= 3:
+                        self.logger.debug(f"Added clean file to git index: {file_path}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to add file {file_path}: {str(e)}")
+            
+            # Update .gitignore to ensure future privacy protection
+            from .branch_utils import BranchContext
+            context = BranchContext(self.repo_root, self._get_branch_config())
+            self._update_gitignore_for_public_branch(context)
+            
+            # Create initial commit with only clean files (no deletion history)
+            try:
+                staged_changes = self.run_git(["diff", "--cached", "--name-status"], cwd=self.repo_root)
+                if staged_changes.strip():
+                    commit_message = f"Initial {branch_name} branch setup\n\nCreated using selective file addition - no sensitive content included.\nFiles included: {len(clean_files)}"
+                    
+                    self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
+                    self.logger.info(f"Created clean public branch '{branch_name}' with {len(clean_files)} files")
+                else:
+                    self.logger.warning(f"No clean files to commit for branch '{branch_name}'")
+            except Exception as e:
+                self.logger.error(f"Failed to commit clean branch '{branch_name}': {str(e)}")
+                raise
+            
+            self.logger.info(f"Successfully created selective public branch '{branch_name}' with no privacy violations")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create selective public branch '{branch_name}': {str(e)}")
+            # Try to switch back to original branch
+            try:
+                self.run_git(["checkout", current_branch], cwd=self.repo_root, check=False)
+            except:
+                pass
+            raise
+
+    def _create_clean_public_branch(self, branch_name: str, source_branch: str) -> None:
+        """
+        Create a clean public branch without private content using existing guardrails.
+        
+        This method creates a new branch and uses the existing BranchContext infrastructure
+        to identify and remove private content, ensuring consistency with other guardrails.
+        
+        Args:
+            branch_name: Name of the public branch to create
+            source_branch: Source branch (typically 'private')
+        """
+        # Import here to avoid circular dependencies
+        from .branch_utils import BranchContext
+        
+        try:
+            # First, ensure we're in a git repository
+            if not os.path.exists(os.path.join(self.repo_root, ".git")):
+                raise ValueError(f"Not a git repository: {self.repo_root}")
+            
+            # Get current branch to restore if something goes wrong
+            current_branch = self.run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo_root).strip()
+            
+            # Check if branch already exists
+            existing_branches = self.run_git(["branch", "--list"], cwd=self.repo_root).splitlines()
+            branch_exists = any(branch_name in branch.strip() for branch in existing_branches)
+            
+            if branch_exists:
+                # Branch exists, check it out and reset it
+                self.logger.info(f"Branch '{branch_name}' already exists, resetting it")
+                self.run_git(["checkout", branch_name], cwd=self.repo_root)
+                self.run_git(["reset", "--hard", source_branch], cwd=self.repo_root)
+            else:
+                # Create the new branch from the source branch
+                self.run_git(["checkout", "-b", branch_name, source_branch], cwd=self.repo_root)
+            
+            # Use existing BranchContext with configuration to identify private content
+            context = BranchContext(self.repo_root, self._get_branch_config())
+            
+            # Get all files tracked by git (check git index, not working directory)
+            tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
+            
+            # Use existing guardrails logic to identify private files
+            private_files = context.check_private_files(tracked_files)
+            
+            files_removed = []
+            if private_files:
+                self.logger.info(f"Removing {len(private_files)} private files from branch '{branch_name}'")
+                
+                # Remove private files from git index
+                for file_path, reason in private_files:
+                    try:
+                        # Remove from git index with proper error checking
+                        self.run_git(["rm", "--cached", "--ignore-unmatch", file_path], 
+                                   cwd=self.repo_root, check=True)
+                        files_removed.append(file_path)
+                        self.logger.debug(f"Removed {file_path} from git index: {reason}")
+                    except Exception as e:
+                        self.logger.error(f"CRITICAL: Failed to remove {file_path} from git index: {e}")
+                        raise
+            
+            # CRITICAL FIX: Perform additional sensitive file cleanup for public branch
+            # This ensures working directory files are also cleaned
+            self.logger.info(f"Performing comprehensive sensitive file cleanup for public branch '{branch_name}'")
+            cleanup_results = self._cleanup_sensitive_files(branch_context=branch_name)
+            
+            # Add cleanup results to files_removed for commit message
+            if cleanup_results.get("working_dir"):
+                files_removed.extend(cleanup_results["working_dir"])
+            if cleanup_results.get("git_index"):
+                files_removed.extend(cleanup_results["git_index"])
+            
+            # Update .gitignore to ensure private content stays ignored
+            self._update_gitignore_for_public_branch(context)
+            
+            # Commit the changes (both file removals and .gitignore updates)
+            try:
+                staged_changes = self.run_git(["diff", "--cached", "--name-status"], cwd=self.repo_root)
+                if staged_changes.strip():
+                    # Deduplicate files_removed list and create commit message
+                    unique_files_removed = list(set(files_removed))
+                    commit_message = f"Remove private content from {branch_name} branch\n\nRemoved {len(unique_files_removed)} files:\n"
+                    for file_path in unique_files_removed[:10]:  # Show first 10 files
+                        commit_message += f"- {file_path}\n"
+                    if len(unique_files_removed) > 10:
+                        commit_message += f"... and {len(unique_files_removed) - 10} more files\n"
+                    commit_message += "\nUpdated .gitignore for public branch protection"
+                    
+                    self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
+                    self.logger.info(f"Committed removal of {len(unique_files_removed)} private files from {branch_name}")
+                else:
+                    self.logger.info(f"No private content found to remove from {branch_name}")
+            except Exception as e:
+                self.logger.error(f"CRITICAL: Failed to commit private content removal: {e}")
+                raise
+            
+            self.logger.info(f"Successfully created clean public branch '{branch_name}'")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create clean public branch '{branch_name}': {str(e)}")
+            # Try to switch back to original branch
+            try:
+                self.run_git(["checkout", current_branch], cwd=self.repo_root, check=False)
+            except:
+                pass
+            raise
+
+    def _verify_clean_branch(self, branch_name: str) -> bool:
+        """
+        Verify that a branch does not contain private content using existing guardrails.
+        
+        This method uses the existing BranchContext infrastructure to check for private
+        content by examining what git actually tracks, not just the working directory.
+        
+        Args:
+            branch_name: Name of the branch to verify
+            
+        Returns:
+            True if branch is clean, False if private content found
+        """
+        # Import here to avoid circular dependencies
+        from .branch_utils import BranchContext
+        
+        try:
+            # Check current branch
+            current_branch = self.run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo_root).strip()
+            
+            # Switch to target branch for verification
+            self.run_git(["checkout", branch_name], cwd=self.repo_root)
+            
+            # Use existing BranchContext with configuration for verification
+            context = BranchContext(self.repo_root, self._get_branch_config())
+            
+            # Check what git actually tracks (git index), not working directory
+            tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
+            
+            # Use existing guardrails logic to identify private files
+            private_files = context.check_private_files(tracked_files)
+            
+            # Switch back to original branch
+            self.run_git(["checkout", current_branch], cwd=self.repo_root)
+            
+            if private_files:
+                self.logger.error(f"Branch '{branch_name}' contains {len(private_files)} private files in git index:")
+                for file_path, reason in private_files:
+                    self.logger.error(f"  {file_path}: {reason}")
+                return False
+            
+            self.logger.info(f"Branch '{branch_name}' verification passed - no private content found")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to verify branch '{branch_name}': {str(e)}")
+            return False
+
+    def _update_gitignore_for_public_branch(self, context) -> None:
+        """
+        Update .gitignore with private content patterns using BranchContext.
+        
+        Args:
+            context: BranchContext instance to get patterns from
+        """
+        gitignore_path = os.path.join(self.repo_root, ".gitignore")
+        gitignore_content = []
+        
+        # Read existing .gitignore if it exists
+        if os.path.exists(gitignore_path):
+            with open(gitignore_path, "r") as f:
+                gitignore_content = f.readlines()
+        
+        # Add private content protection section using BranchContext patterns
+        protection_marker = "# RepoKit Private Content Protection (DO NOT REMOVE)\n"
+        if protection_marker not in "".join(gitignore_content):
+            gitignore_content.append("\n")
+            gitignore_content.append(protection_marker)
+            
+            # Add patterns from BranchContext
+            for pattern in context.PRIVATE_PATTERNS:
+                if pattern not in "".join(gitignore_content):
+                    gitignore_content.append(f"{pattern}\n")
+            
+            for pattern in context.EXCLUDE_FROM_PUBLIC:
+                if pattern not in "".join(gitignore_content):
+                    gitignore_content.append(f"{pattern}\n")
+            
+            # Write updated .gitignore
+            with open(gitignore_path, "w") as f:
+                f.writelines(gitignore_content)
+            
+            # Stage .gitignore changes
+            self.run_git(["add", ".gitignore"], cwd=self.repo_root)
+            self.logger.debug("Updated .gitignore with private content protection patterns")
+
+    def _get_branch_config(self) -> Dict:
+        """
+        Get branch configuration for BranchContext from repo configuration.
+        
+        Returns:
+            Dictionary with branch and pattern configuration
+        """
+        return {
+            'private_branches': self.config.get('private_branches', DEFAULT_PRIVATE_BRANCHES),
+            'public_branches': self.config.get('public_branches', DEFAULT_PUBLIC_BRANCHES),
+            'private_patterns': self.config.get('private_patterns', DEFAULT_PRIVATE_PATTERNS),
+            'exclude_from_public': self.config.get('exclude_from_public', DEFAULT_EXCLUDE_FROM_PUBLIC)
+        }
 
     def _has_changes(self, directory: str) -> bool:
         """
@@ -1226,10 +1737,14 @@ exit 0
             self.run_git(["add", "CLAUDE.md"], cwd=self.repo_root)
             self.run_git(["add", "-f", "private/claude/"], cwd=self.repo_root)
 
-            # Commit AI integration files
-            self.run_git(
-                ["commit", "-m", "Add Claude AI integration files"], cwd=self.repo_root
-            )
+            # Only commit if not in adoption mode (in adoption, user commits manually)
+            if not self.config.get("is_adoption", False):
+                # Commit AI integration files
+                self.run_git(
+                    ["commit", "-m", "Add Claude AI integration files"], cwd=self.repo_root
+                )
+            else:
+                self.logger.info("AI files staged for adoption - commit manually when ready")
 
             self.logger.info("AI integration files generated successfully")
 
@@ -1262,6 +1777,288 @@ exit 0
             "generic": "# Add your build command here",
         }
         return commands.get(language, commands["generic"])
+
+    def _cleanup_sensitive_files(self, branch_context: Optional[str] = None, dry_run: bool = False) -> Dict[str, List[str]]:
+        """
+        Branch-aware cleanup of sensitive files during repository adoption.
+        
+        This method performs intelligent cleanup based on branch context:
+        - For private branches: Only clean git index, preserve working directory
+        - For public branches: Clean both working directory and git index
+        
+        Args:
+            branch_context: Branch we're cleaning for (e.g. 'private', 'dev', 'main')
+            dry_run: If True, only report what would be cleaned
+            
+        Returns:
+            Dictionary with 'working_dir' and 'git_index' lists of cleaned files
+        """
+        import fnmatch
+        from pathlib import Path
+        
+        # Set up detailed logging for debugging
+        cleanup_logger = logging.getLogger("repokit.cleanup")
+        
+        cleanup_logger.info(f"Starting sensitive file cleanup (branch: {branch_context}, dry_run: {dry_run})")
+        
+        cleanup_results = {
+            "working_dir": [],
+            "git_index": []
+        }
+        
+        # Get patterns to clean - use DEFAULT_SENSITIVE_PATTERNS for consistency
+        patterns_to_clean = DEFAULT_SENSITIVE_PATTERNS.copy()
+        
+        # Add any additional patterns from config
+        config_patterns = self.config.get("sensitive_patterns", [])
+        if config_patterns:
+            patterns_to_clean.extend(config_patterns)
+        
+        # Determine if this is a private branch
+        private_branches = DEFAULT_PRIVATE_BRANCHES + self.config.get("private_branches", [])
+        is_private_branch = branch_context in private_branches
+        
+        cleanup_logger.info(f"Branch context: {branch_context}")
+        cleanup_logger.info(f"Is private branch: {is_private_branch}")
+        cleanup_logger.info(f"Using {len(patterns_to_clean)} sensitive patterns: {patterns_to_clean}")
+        
+        # For private branches, we preserve working directory files but clean git index
+        # For public branches, we clean both working directory and git index
+        clean_working_dir = not is_private_branch
+        clean_git_index = True  # Always clean git index
+        
+        cleanup_logger.info(f"Will clean working directory: {clean_working_dir}")
+        cleanup_logger.info(f"Will clean git index: {clean_git_index}")
+        
+        # Clean working directory files (only for public branches)
+        if clean_working_dir:
+            cleanup_logger.debug("Scanning working directory for sensitive files")
+            for root, dirs, files in os.walk(self.repo_root):
+                # Skip .git directory
+                if ".git" in root.split(os.sep):
+                    continue
+                    
+                for file in files:
+                    file_path = os.path.join(root, file)
+                    relative_path = os.path.relpath(file_path, self.repo_root)
+                    
+                    # Check if file matches any sensitive pattern
+                    should_remove = False
+                    matching_pattern = None
+                    
+                    for pattern in patterns_to_clean:
+                        # Cross-platform pattern matching using normalized paths
+                        normalized_relative = str(Path(relative_path)).replace('\\', '/')
+                        normalized_pattern = pattern.replace('\\', '/')
+                        
+                        # Check multiple match approaches for cross-platform compatibility
+                        matches = [
+                            fnmatch.fnmatch(normalized_relative, normalized_pattern),  # Full path
+                            fnmatch.fnmatch(file, normalized_pattern),                 # Filename only
+                            fnmatch.fnmatch(str(Path(file)), normalized_pattern),     # Filename as Path
+                        ]
+                        
+                        if any(matches):
+                            should_remove = True
+                            matching_pattern = pattern
+                            if self.verbose >= 3:
+                                cleanup_logger.debug(f"Pattern '{pattern}' matched file '{relative_path}' (normalized: '{normalized_relative}')")
+                            break
+                    
+                    if should_remove:
+                        cleanup_results["working_dir"].append(relative_path)
+                        
+                        if dry_run:
+                            cleanup_logger.info(f"Would remove (working dir): {relative_path} (pattern: {matching_pattern})")
+                        else:
+                            try:
+                                os.remove(file_path)
+                                cleanup_logger.debug(f"Removed (working dir): {relative_path} (pattern: {matching_pattern})")
+                            except Exception as e:
+                                cleanup_logger.warning(f"Failed to remove {relative_path}: {str(e)}")
+        else:
+            cleanup_logger.info("Skipping working directory cleanup (private branch - files preserved)")
+        
+        # Clean git index files (always done)
+        if clean_git_index:
+            cleanup_logger.debug("Scanning git index for sensitive files")
+            try:
+                # Get list of files tracked by git
+                tracked_files = self.run_git(["ls-files"], cwd=self.repo_root).splitlines()
+                
+                files_to_remove_from_index = []
+                
+                for tracked_file in tracked_files:
+                    # Check if tracked file matches any sensitive pattern
+                    should_remove = False
+                    matching_pattern = None
+                    
+                    for pattern in patterns_to_clean:
+                        # Cross-platform pattern matching using normalized paths (same as working directory)
+                        normalized_tracked = str(Path(tracked_file)).replace('\\', '/')
+                        normalized_pattern = pattern.replace('\\', '/')
+                        
+                        # Check multiple match approaches for cross-platform compatibility
+                        matches = [
+                            fnmatch.fnmatch(normalized_tracked, normalized_pattern),  # Full path
+                            fnmatch.fnmatch(os.path.basename(tracked_file), normalized_pattern),  # Filename only
+                            fnmatch.fnmatch(str(Path(tracked_file)), normalized_pattern),  # Filename as Path
+                        ]
+                        
+                        if any(matches):
+                            should_remove = True
+                            matching_pattern = pattern
+                            if self.verbose >= 3:
+                                cleanup_logger.debug(f"Pattern '{pattern}' matched tracked file '{tracked_file}' (normalized: '{normalized_tracked}')")
+                            break
+                    
+                    if should_remove:
+                        cleanup_results["git_index"].append(tracked_file)
+                        files_to_remove_from_index.append(tracked_file)
+                        
+                        if dry_run:
+                            cleanup_logger.info(f"Would remove (git index): {tracked_file} (pattern: {matching_pattern})")
+                        else:
+                            cleanup_logger.debug(f"Marking for git index removal: {tracked_file} (pattern: {matching_pattern})")
+                
+                # Remove files from git index in batch
+                if files_to_remove_from_index and not dry_run:
+                    try:
+                        for file_to_remove in files_to_remove_from_index:
+                            file_full_path = os.path.join(self.repo_root, file_to_remove)
+                            if not os.path.exists(file_full_path) or clean_working_dir:
+                                # File was removed from working dir or we don't want to preserve it
+                                self.run_git(["rm", "--cached", "--ignore-unmatch", file_to_remove], cwd=self.repo_root)
+                                cleanup_logger.debug(f"Removed from git index: {file_to_remove}")
+                            else:
+                                # File still exists in working dir and we want to preserve it
+                                self.run_git(["rm", "--cached", file_to_remove], cwd=self.repo_root)
+                                cleanup_logger.debug(f"Removed from git index (preserved in working dir): {file_to_remove}")
+                        
+                        cleanup_logger.info(f"Removed {len(files_to_remove_from_index)} files from git index")
+                    except Exception as e:
+                        cleanup_logger.error(f"Failed to remove files from git index: {str(e)}")
+                            
+            except Exception as e:
+                cleanup_logger.warning(f"Failed to scan git index: {str(e)}")
+        
+        # Log summary
+        total_cleaned = len(cleanup_results["working_dir"]) + len(cleanup_results["git_index"])
+        action_word = "Would clean" if dry_run else "Cleaned"
+        cleanup_logger.info(f"{action_word} {total_cleaned} sensitive files total")
+        cleanup_logger.info(f"  Working directory: {len(cleanup_results['working_dir'])} files")
+        cleanup_logger.info(f"  Git index: {len(cleanup_results['git_index'])} files")
+        
+        # Show some example files cleaned (for debugging)
+        if self.verbose >= 2 and not dry_run:
+            all_cleaned = cleanup_results["working_dir"] + cleanup_results["git_index"]
+            if all_cleaned:
+                cleanup_logger.info("Example files cleaned:")
+                for file_path in all_cleaned[:5]:
+                    cleanup_logger.info(f"  - {file_path}")
+                if len(all_cleaned) > 5:
+                    cleanup_logger.info(f"  ... and {len(all_cleaned) - 5} more")
+        
+        return cleanup_results
+    
+    def _log_cleanup_summary(self, cleanup_results: Dict[str, List[str]], gitkeep_results: Dict[str, List[str]]) -> None:
+        """
+        Log comprehensive cleanup summary for adoption process.
+        
+        Args:
+            cleanup_results: Results from _cleanup_sensitive_files()
+            gitkeep_results: Results from manage_gitkeep_files()
+        """
+        self.logger.info("=== REPOSITORY ADOPTION CLEANUP SUMMARY ===")
+        
+        # Sensitive files cleanup summary
+        total_sensitive = len(cleanup_results.get("working_dir", [])) + len(cleanup_results.get("git_index", []))
+        if total_sensitive > 0:
+            self.logger.info(f"Cleaned {total_sensitive} sensitive files:")
+            
+            if cleanup_results.get("working_dir"):
+                self.logger.info(f"  Working directory: {len(cleanup_results['working_dir'])} files")
+                if self.verbose >= 2:
+                    for file_path in cleanup_results["working_dir"][:5]:
+                        self.logger.info(f"    - {file_path}")
+                    if len(cleanup_results["working_dir"]) > 5:
+                        self.logger.info(f"    ... and {len(cleanup_results['working_dir']) - 5} more")
+            
+            if cleanup_results.get("git_index"):
+                self.logger.info(f"  Git index: {len(cleanup_results['git_index'])} files")
+                if self.verbose >= 2:
+                    for file_path in cleanup_results["git_index"][:5]:
+                        self.logger.info(f"    - {file_path}")
+                    if len(cleanup_results["git_index"]) > 5:
+                        self.logger.info(f"    ... and {len(cleanup_results['git_index']) - 5} more")
+        else:
+            self.logger.info("No sensitive files found to clean")
+        
+        # .gitkeep management summary
+        total_gitkeep = len(gitkeep_results.get("added", [])) + len(gitkeep_results.get("removed", []))
+        if total_gitkeep > 0:
+            self.logger.info(f"Managed {total_gitkeep} .gitkeep files:")
+            
+            if gitkeep_results.get("added"):
+                self.logger.info(f"  Added to empty directories: {len(gitkeep_results['added'])} files")
+                if self.verbose >= 2:
+                    for file_path in gitkeep_results["added"][:3]:
+                        self.logger.info(f"    + {file_path}")
+                    if len(gitkeep_results["added"]) > 3:
+                        self.logger.info(f"    ... and {len(gitkeep_results['added']) - 3} more")
+            
+            if gitkeep_results.get("removed"):
+                self.logger.info(f"  Removed from non-empty directories: {len(gitkeep_results['removed'])} files")
+                if self.verbose >= 2:
+                    for file_path in gitkeep_results["removed"][:3]:
+                        self.logger.info(f"    - {file_path}")
+                    if len(gitkeep_results["removed"]) > 3:
+                        self.logger.info(f"    ... and {len(gitkeep_results['removed']) - 3} more")
+        else:
+            self.logger.info("No .gitkeep file changes needed")
+        
+        self.logger.info("=== END CLEANUP SUMMARY ===")
+
+    def _generate_repokit_config(self) -> None:
+        """
+        Generate .repokit.json configuration file with RepoKit signature.
+        
+        This file serves as the definitive marker that a project is RepoKit-managed
+        and contains metadata about the RepoKit setup.
+        """
+        import datetime
+        
+        config_path = os.path.join(self.repo_root, ".repokit.json")
+        
+        # Build configuration with RepoKit signature
+        from . import __version__
+        repokit_config = {
+            "repokit_managed": True,
+            "generated_by": "repokit",
+            "version": __version__,  # Current RepoKit version
+            "created_at": datetime.datetime.now().isoformat() + "Z",
+            "project_name": self.project_name,
+            "language": self.config.get("language", "generic"),
+            "branch_strategy": self.config.get("branch_strategy", "standard"),
+            "private_branch": self.config.get("private_branch", "private"),
+        }
+        
+        # Add additional config if available
+        if self.config.get("description"):
+            repokit_config["description"] = self.config["description"]
+        
+        if self.config.get("user"):
+            repokit_config["author"] = self.config["user"]
+        
+        # Write configuration file
+        try:
+            with open(config_path, "w", encoding="utf-8") as f:
+                json.dump(repokit_config, f, indent=2)
+            
+            self.logger.info(f"Generated RepoKit configuration: {config_path}")
+            
+        except Exception as e:
+            self.logger.warning(f"Failed to generate RepoKit configuration: {str(e)}")
 
     def _generate_badges(self, language: str) -> str:
         """Generate GitHub workflow badges based on language and configuration."""

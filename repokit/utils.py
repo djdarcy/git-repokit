@@ -131,6 +131,7 @@ def copy_files(
             "*.tmp",
             "*.swp",
             "*~",
+            "*.*~",
         ]
 
     # Walk through the source directory

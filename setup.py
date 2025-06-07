@@ -1,8 +1,14 @@
+import os
 from setuptools import setup, find_packages
+
+# Read version from __version__.py
+version = {}
+with open(os.path.join("repokit", "__version__.py")) as f:
+    exec(f.read(), version)
 
 setup(
     name="repokit",
-    version="0.3.0",
+    version=version["__version__"],
     description="Repository Template Generator",
     author="Dustin Darcy",
     packages=find_packages(),

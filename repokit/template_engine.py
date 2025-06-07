@@ -225,6 +225,7 @@ class TemplateEngine:
         output_path: str,
         context: Dict[str, Any],
         category: str = "common",
+        preserve_existing: bool = False,
     ) -> bool:
         """
         Load, render, and write a template to a file.
@@ -234,10 +235,16 @@ class TemplateEngine:
             output_path: Path to write the rendered template
             context: Dictionary of variables for template rendering
             category: Category of the template (common, github, languages/python, etc.)
+            preserve_existing: If True, don't overwrite existing files
 
         Returns:
             True if successful, False otherwise
         """
+        # Check if file exists and should be preserved
+        if preserve_existing and os.path.exists(output_path):
+            self.logger.info(f"Preserving existing file: {output_path}")
+            return True
+            
         template_content = self.load_template(template_name, category)
         if not template_content:
             return False

@@ -52,7 +52,8 @@ For detailed help on any command, use: repokit <command> --help
     )
 
     # Version argument
-    parser.add_argument("--version", action="version", version="RepoKit 0.3.0")
+    from . import __version__
+    parser.add_argument("--version", action="version", version=f"RepoKit {__version__}")
     
     # Global options that apply to all commands
     parser.add_argument(
@@ -195,6 +196,18 @@ Recipe: Microservice
         choices=["standard", "enhanced"],
         default="standard",
         help="Private directory set to use (default: standard)"
+    )
+    
+    dir_group.add_argument(
+        "--sensitive-files", "-sf",
+        help="Comma-separated list of sensitive files to exclude from public branches",
+        metavar="FILES"
+    )
+    
+    dir_group.add_argument(
+        "--sensitive-patterns", "-sp",
+        help="Comma-separated list of file patterns to exclude from public branches (supports glob)",
+        metavar="PATTERNS"
     )
     
     # Branch configuration
@@ -415,6 +428,18 @@ Examples:
     )
     
     migrate_parser.add_argument(
+        "--backup",
+        action="store_true",
+        help="Create a backup of the directory before making changes"
+    )
+    
+    migrate_parser.add_argument(
+        "--backup-location",
+        help="Custom backup location (default: <dir>_backup_<timestamp>)",
+        metavar="PATH"
+    )
+    
+    migrate_parser.add_argument(
         "--publish-to",
         choices=["github", "gitlab"],
         help="Publish to remote after migration"
@@ -443,17 +468,128 @@ The adopt command is safer than migrate for repositories with:
         """,
         epilog="""
 Examples:
-  # Adopt in current directory
+
+BASIC ADOPTION:
+  # Adopt current directory with minimal setup
   repokit adopt
   
-  # Adopt with specific branch strategy
-  repokit adopt --branch-strategy gitflow
+  # Adopt specific directory with standard profile
+  repokit adopt ./my-project --dir-profile standard
+
+PYTHON PROJECT ADOPTION (Real Example):
+  # Adopt a Python project with comprehensive setup and GitHub publishing
+  # This is the command used for the UNCtools project deployment
+  repokit adopt ./my-python-project \\
+    --branch-strategy simple \\
+    --migration-strategy safe \\
+    --dir-profile standard \\
+    --language python \\
+    --description "Universal Naming Convention (UNC) path tools for Python" \\
+    --publish-to github \\
+    --repo-name MyPythonTools \\
+    --private-repo \\
+    --ai claude \\
+    --backup \\
+    --backup-location ../backup-before-adoption
+
+GITHUB DEPLOYMENT RECIPES:
+  # Public GitHub repository
+  repokit adopt ./open-source-project \\
+    --publish-to github \\
+    --repo-name awesome-open-source \\
+    --language javascript \\
+    --dir-profile complete
+    
+  # Private GitHub repository with organization
+  repokit adopt ./company-project \\
+    --publish-to github \\
+    --repo-name internal-tools \\
+    --organization mycompany \\
+    --private-repo \\
+    --language python
+    
+  # Personal project with full configuration
+  repokit adopt ./personal-project \\
+    --publish-to github \\
+    --repo-name my-awesome-project \\
+    --private-repo \\
+    --description "My personal coding project" \\
+    --user-name "John Doe" \\
+    --user-email "john@example.com"
+
+BRANCH STRATEGY EXAMPLES:
+  # Simple strategy (main, dev, private)
+  repokit adopt --branch-strategy simple --language python
   
-  # Adopt and add GitHub remote
-  repokit adopt --publish-to github --organization myorg
+  # GitFlow strategy (main, dev, feature, release, hotfix branches)
+  repokit adopt --branch-strategy gitflow --dir-profile complete
   
-  # Dry run to preview changes
-  repokit adopt --dry-run
+  # GitHub Flow (main, feature branches)
+  repokit adopt --branch-strategy github-flow
+  
+  # Custom branches
+  repokit adopt --branches "main,staging,production" --default-branch main
+
+DIRECTORY PROFILE EXAMPLES:
+  # Minimal profile (docs, tests, scripts)
+  repokit adopt --dir-profile minimal
+  
+  # Standard profile (docs, tests, scripts, examples, config)
+  repokit adopt --dir-profile standard
+  
+  # Complete profile (all directories including logs, private, revisions)
+  repokit adopt --dir-profile complete
+  
+  # Custom directories
+  repokit adopt --directories "data,models,notebooks,experiments"
+
+SENSITIVE FILE PROTECTION:
+  # Specify sensitive files to exclude from public branches
+  repokit adopt --sensitive-files ".env,secrets.json,api_keys.txt"
+  
+  # Specify sensitive patterns (vim backups, logs, private dirs)
+  repokit adopt --sensitive-patterns "*.log,*~,private/*,secrets/*"
+  
+  # Use enhanced privacy protection
+  repokit adopt --private-set enhanced --private-dirs "experiments,drafts"
+
+BACKUP AND SAFETY:
+  # Create backup before adoption
+  repokit adopt --backup --backup-location ../project-backup-$(date +%Y%m%d)
+  
+  # Dry run to preview all changes
+  repokit adopt --dry-run -vv
+  
+  # Clean git history during adoption
+  repokit adopt --clean-history --cleaning-recipe pre-open-source
+
+AI INTEGRATION:
+  # Add Claude AI integration files
+  repokit adopt --ai claude
+  
+  # Skip AI integration
+  repokit adopt --ai none
+
+COMMON WORKFLOWS:
+  1. Test adoption (recommended first step):
+     repokit adopt ./my-project --dry-run -vv
+     
+  2. Safe adoption with backup:
+     repokit adopt ./my-project --backup --backup-location ../backup
+     
+  3. GitHub deployment:
+     repokit adopt ./my-project --publish-to github --repo-name my-project --private-repo
+     
+  4. Complete adoption (full features):
+     repokit adopt ./my-project \\
+       --dir-profile complete \\
+       --branch-strategy simple \\
+       --language python \\
+       --ai claude \\
+       --publish-to github \\
+       --private-repo
+       
+For more detailed documentation, see: docs/Adoption-Guide.md
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
@@ -464,12 +600,124 @@ Examples:
         help="Path to repository (default: current directory)"
     )
     
+    # Language and description
     adopt_parser.add_argument(
+        "--language", "-l",
+        choices=["python", "javascript", "generic"],
+        default="generic",
+        help="Programming language for templates (default: generic)"
+    )
+    
+    adopt_parser.add_argument(
+        "--description", "-d",
+        help="Short description of the repository"
+    )
+    
+    # Directory configuration - NEW PROFILE SUPPORT
+    adopt_dir_group = adopt_parser.add_argument_group("Directory Configuration")
+    adopt_dir_group.add_argument(
+        "--dir-profile",
+        choices=["minimal", "standard", "complete"],
+        help="Use a predefined directory profile"
+    )
+    
+    adopt_dir_group.add_argument(
+        "--dir-groups",
+        help="Comma-separated list of directory groups (development,documentation,operations,privacy)",
+        metavar="GROUPS"
+    )
+    
+    adopt_dir_group.add_argument(
+        "--directories", "-dir",
+        help="Comma-separated list of additional directories to create",
+        metavar="DIRS"
+    )
+    
+    adopt_dir_group.add_argument(
+        "--private-dirs", "-pd",
+        help="Comma-separated list of directories to mark as private",
+        metavar="DIRS"
+    )
+    
+    adopt_dir_group.add_argument(
+        "--private-set",
+        choices=["standard", "enhanced"],
+        default="standard",
+        help="Private directory set to use (default: standard)"
+    )
+    
+    adopt_dir_group.add_argument(
+        "--sensitive-files", "-sf",
+        help="Comma-separated list of sensitive files to exclude from public branches",
+        metavar="FILES"
+    )
+    
+    adopt_dir_group.add_argument(
+        "--sensitive-patterns", "-sp",
+        help="Comma-separated list of file patterns to exclude from public branches (supports glob)",
+        metavar="PATTERNS"
+    )
+    
+    # Branch configuration
+    adopt_branch_group = adopt_parser.add_argument_group("Branch Configuration")
+    adopt_branch_group.add_argument(
+        "--branches", "-b",
+        help="Comma-separated list of branches to create",
+        metavar="BRANCHES"
+    )
+    
+    adopt_branch_group.add_argument(
+        "--worktrees", "-w",
+        help="Comma-separated list of branches to create worktrees for",
+        metavar="BRANCHES"
+    )
+    
+    adopt_branch_group.add_argument(
+        "--private-branch",
+        default="private",
+        help="Name of the private branch (default: private)"
+    )
+    
+    adopt_branch_group.add_argument(
+        "--default-branch",
+        help="Name of the default branch (default: main)"
+    )
+    
+    adopt_branch_group.add_argument(
         "--branch-strategy",
         choices=["standard", "simple", "gitflow", "github-flow", "minimal"],
         help="Branch strategy to implement"
     )
     
+    adopt_branch_group.add_argument(
+        "--branch-config",
+        help="Path to branch configuration file (JSON)",
+        metavar="FILE"
+    )
+    
+    adopt_branch_group.add_argument(
+        "--branch-dir-main",
+        help="Directory name for main branch worktree (default: github)"
+    )
+    
+    adopt_branch_group.add_argument(
+        "--branch-dir-dev",
+        help="Directory name for dev branch worktree (default: dev)"
+    )
+    
+    # Git configuration
+    adopt_git_group = adopt_parser.add_argument_group("Git Configuration")
+    adopt_git_group.add_argument(
+        "--user-name",
+        help="Git user name for commits"
+    )
+    
+    adopt_git_group.add_argument(
+        "--user-email",
+        help="Git user email for commits"
+    )
+    
+    # Migration strategy
     adopt_parser.add_argument(
         "--migration-strategy",
         choices=["safe", "replace", "merge"],
@@ -484,9 +732,97 @@ Examples:
     )
     
     adopt_parser.add_argument(
+        "--backup",
+        action="store_true",
+        help="Create a backup of the repository before making changes"
+    )
+    
+    adopt_parser.add_argument(
+        "--backup-location",
+        help="Custom backup location (default: <repo>_backup_<timestamp>)",
+        metavar="PATH"
+    )
+    
+    adopt_parser.add_argument(
+        "--clean-history",
+        action="store_true", 
+        help="Clean private content from git history before creating public branches"
+    )
+    
+    adopt_parser.add_argument(
+        "--cleaning-recipe",
+        choices=["pre-open-source", "windows-safe", "remove-secrets"],
+        default="pre-open-source",
+        help="Recipe for cleaning history (default: pre-open-source)"
+    )
+    
+    # Remote/Publishing options
+    adopt_remote_group = adopt_parser.add_argument_group("Remote Repository")
+    adopt_remote_group.add_argument(
         "--publish-to",
         choices=["github", "gitlab"],
-        help="Add new remote repository"
+        help="Publish repository to a remote service"
+    )
+    
+    adopt_remote_group.add_argument(
+        "--repo-name",
+        help="Name for the remote repository (default: directory name)"
+    )
+    
+    adopt_remote_group.add_argument(
+        "--remote-name",
+        default="origin",
+        help="Name for the remote (default: origin)"
+    )
+    
+    adopt_remote_group.add_argument(
+        "--private-repo",
+        action="store_true",
+        help="Create a private repository on remote service"
+    )
+    
+    adopt_remote_group.add_argument(
+        "--organization",
+        help="GitHub organization or GitLab group name"
+    )
+    
+    adopt_remote_group.add_argument(
+        "--no-push",
+        action="store_true",
+        help="Don't push branches after creating remote repository"
+    )
+    
+    # Authentication
+    adopt_auth_group = adopt_parser.add_argument_group("Authentication")
+    adopt_auth_group.add_argument(
+        "--token",
+        help="Authentication token for remote service"
+    )
+    
+    adopt_auth_group.add_argument(
+        "--token-command",
+        help="Command to retrieve token (e.g., 'pass show github/token')"
+    )
+    
+    adopt_auth_group.add_argument(
+        "--credentials-file",
+        help="Path to credentials file",
+        metavar="FILE"
+    )
+    
+    # Template options
+    adopt_template_group = adopt_parser.add_argument_group("Template Configuration")
+    adopt_template_group.add_argument(
+        "--templates-dir",
+        help="Path to custom templates directory",
+        metavar="DIR"
+    )
+    
+    adopt_template_group.add_argument(
+        "--ai",
+        choices=["none", "claude"],
+        default="claude",
+        help="AI tool integration to include (default: claude)"
     )
 
     # PUBLISH command
@@ -523,6 +859,11 @@ Examples:
     publish_parser.add_argument(
         "name",
         help="Path to repository to publish"
+    )
+    
+    publish_parser.add_argument(
+        "--repo-name",
+        help="Name for the remote repository (default: directory name)"
     )
     
     publish_parser.add_argument(
@@ -568,6 +909,24 @@ Examples:
     publish_parser.add_argument(
         "--credentials-file",
         help="Path to credentials file"
+    )
+    
+    publish_parser.add_argument(
+        "--templates-dir",
+        help="Path to custom templates directory",
+        metavar="DIR"
+    )
+    
+    publish_parser.add_argument(
+        "--include-branches",
+        nargs="+",
+        help="Only push these specific branches (overrides strategy defaults)"
+    )
+    
+    publish_parser.add_argument(
+        "--exclude-branches", 
+        nargs="+",
+        help="Exclude these branches from publishing (in addition to private)"
     )
 
     # BOOTSTRAP command
@@ -789,6 +1148,264 @@ Examples:
         help="Preview what would be merged without doing it"
     )
 
+    # Add safe-merge-dev command
+    safe_merge_dev_parser = subparsers.add_parser(
+        "safe-merge-dev",
+        help="Merge development branches with history protection",
+        description="""
+Merge development branches while protecting sensitive commit history.
+
+This command helps prevent detailed implementation history from leaking
+to public branches by intelligently squashing or preserving commits based
+on branch patterns and configurable rules.
+
+Branch categories and default behaviors:
+- prototype/*, experiment/*, spike/*: Always squash (development/exploration)
+- feature/*: Interactive mode (ask whether to squash)
+- bugfix/*, hotfix/*: Preserve history (important for tracking)
+
+The command will:
+- Analyze commits in the branch
+- Remove sensitive patterns from messages
+- Generate meaningful squash commit messages
+- Provide interactive options for feature branches
+        """,
+        epilog="""
+Examples:
+  # Merge a prototype branch (auto-squashes)
+  repokit safe-merge-dev prototype/new-feature
+  
+  # Merge a feature branch (interactive)
+  repokit safe-merge-dev feature/oauth-integration
+  
+  # Force squash with custom message
+  repokit safe-merge-dev feature/api --squash --message "Add REST API"
+  
+  # Preserve full history
+  repokit safe-merge-dev feature/refactor --no-squash
+  
+  # Preview without merging
+  repokit safe-merge-dev experiment/ml-model --preview
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "branch",
+        help="Development branch to merge"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--target",
+        help="Target branch (default: current branch)"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--squash",
+        action="store_true",
+        help="Force squash merge regardless of branch rules"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--no-squash",
+        action="store_true",
+        help="Preserve all commits regardless of branch rules"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--message", "-m",
+        help="Custom commit message for squashed merge"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--preserve-last",
+        type=int,
+        help="Preserve the last N commits (not yet implemented)"
+    )
+    
+    safe_merge_dev_parser.add_argument(
+        "--preview",
+        action="store_true",
+        help="Preview merge without executing"
+    )
+
+    # Add clean-history command
+    clean_history_parser = subparsers.add_parser(
+        "clean-history",
+        help="Clean sensitive data from repository history",
+        description="""
+Clean sensitive data from repository history using git filter-repo.
+
+This command provides safe, user-friendly tools to remove private files,
+secrets, and other sensitive data from git history. It includes pre-built
+recipes for common scenarios and comprehensive safety features.
+
+WARNING: This rewrites repository history and requires force-push!
+
+Pre-built recipes:
+- pre-open-source: Remove common private files (private/, CLAUDE.md, etc.)
+- windows-safe: Fix Windows reserved names (nul, con, aux, etc.)
+- remove-secrets: Remove API keys and passwords (coming soon)
+- cutoff-date: Remove old private data before a date (coming soon)
+
+Safety features:
+- Automatic backup before cleaning
+- Dry-run preview mode
+- Confirmation prompts
+- Clear warnings and instructions
+        """,
+        epilog="""
+Examples:
+  # Interactive mode - analyze and suggest cleaning
+  repokit clean-history
+  
+  # Remove common private files before open-sourcing
+  repokit clean-history --recipe pre-open-source
+  
+  # Preview what would be removed
+  repokit clean-history --recipe pre-open-source --dry-run
+  
+  # Fix Windows compatibility issues
+  repokit clean-history --recipe windows-safe
+  
+  # Remove specific paths
+  repokit clean-history --remove-paths private/ logs/ secrets/
+  
+  # Skip backup (not recommended)
+  repokit clean-history --recipe pre-open-source --no-backup
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    clean_history_parser.add_argument(
+        "--recipe",
+        choices=["pre-open-source", "windows-safe", "remove-secrets", "cutoff-date"],
+        help="Use a pre-built cleaning recipe"
+    )
+    
+    clean_history_parser.add_argument(
+        "--remove-paths",
+        nargs="+",
+        help="Specific paths to remove from history"
+    )
+    
+    clean_history_parser.add_argument(
+        "--cutoff-sha",
+        help="Remove private data only before this commit"
+    )
+    
+    clean_history_parser.add_argument(
+        "--cutoff-date",
+        help="Remove private data only before this date (YYYY-MM-DD)"
+    )
+    
+    clean_history_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without modifying repository"
+    )
+    
+    clean_history_parser.add_argument(
+        "--no-backup",
+        action="store_true",
+        help="Skip creating backup (not recommended)"
+    )
+    
+    clean_history_parser.add_argument(
+        "--backup-location",
+        help="Custom backup location (default: <repo>_backup_<timestamp>)"
+    )
+    
+    clean_history_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompts"
+    )
+
+    # Add manage-gitkeep command
+    gitkeep_parser = subparsers.add_parser(
+        "manage-gitkeep",
+        help="Manage .gitkeep files in directories",
+        description="""
+Manage .gitkeep files based on directory contents.
+
+This command automatically:
+- Adds .gitkeep files to empty directories to ensure they are tracked by Git
+- Removes .gitkeep files from directories that contain other files
+
+This is useful for maintaining clean Git history while ensuring empty directories
+are properly tracked.
+        """,
+        epilog="""
+Examples:
+  # Manage .gitkeep files in current directory
+  repokit manage-gitkeep
+  
+  # Manage .gitkeep files in specific directory
+  repokit manage-gitkeep --directory ./src
+  
+  # Process only top-level directories (no recursion)
+  repokit manage-gitkeep --no-recursive
+  
+  # Preview changes without applying them
+  repokit manage-gitkeep --dry-run
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    
+    gitkeep_parser.add_argument(
+        "--directory",
+        "-d",
+        default=".",
+        help="Directory to process (default: current directory)"
+    )
+    
+    gitkeep_parser.add_argument(
+        "--recursive",
+        action="store_true",
+        default=True,
+        help="Process subdirectories recursively (default: True)"
+    )
+    
+    gitkeep_parser.add_argument(
+        "--no-recursive",
+        action="store_true",
+        help="Do not process subdirectories recursively"
+    )
+    
+    gitkeep_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what would be changed without actually making changes"
+    )
+
+    # Add analyze-history command
+    analyze_history_parser = subparsers.add_parser(
+        "analyze-history",
+        help="Analyze repository history for sensitive data",
+        description="""
+Analyze repository history to identify sensitive data that should be cleaned.
+
+This command scans your repository history and reports:
+- Private directories (private/, logs/, etc.)
+- Windows compatibility issues (nul, con, aux files)
+- Large files that might not belong
+- Potential secrets (coming soon)
+- Branch structure and commit count
+
+Use this before clean-history to understand what needs cleaning.
+        """,
+        epilog="""
+Examples:
+  # Analyze current repository
+  repokit analyze-history
+  
+  # Analyze with detailed output
+  repokit analyze-history -v
+        """,
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+
     return parser.parse_args()
 
 
@@ -797,7 +1414,7 @@ def setup_logging(verbosity: int, quiet: bool = False) -> None:
     Set up logging based on verbosity level.
 
     Args:
-        verbosity: Verbosity level (0-3)
+        verbosity: Verbosity level (0-3+)
         quiet: Whether to suppress all output except errors
     """
     if quiet:
@@ -805,10 +1422,10 @@ def setup_logging(verbosity: int, quiet: bool = False) -> None:
     else:
         # Map verbosity levels to logging levels
         log_levels = {
-            0: logging.WARNING,  # Default
-            1: logging.INFO,  # -v
-            2: logging.DEBUG,  # -vv
-            3: logging.DEBUG,  # -vvv (more detailed debug)
+            0: logging.WARNING,  # Default - only warnings and errors
+            1: logging.INFO,     # -v - basic operations
+            2: logging.DEBUG,    # -vv - file operations and detailed flow
+            3: logging.DEBUG,    # -vvv - pattern matching and cleanup details
         }
         # Cap at maximum level
         capped_verbosity = min(verbosity, 3)
@@ -834,9 +1451,24 @@ def setup_logging(verbosity: int, quiet: bool = False) -> None:
     # Get logger for repokit
     logger = logging.getLogger("repokit")
 
+    # Set up verbosity-specific loggers for detailed debugging
+    if verbosity >= 2:
+        # Enable detailed file operation logging
+        logging.getLogger("repokit.utils").setLevel(logging.DEBUG)
+        logging.getLogger("repokit.repo_manager").setLevel(logging.DEBUG)
+        
+    if verbosity >= 3:
+        # Enable pattern matching and cleanup debugging
+        logging.getLogger("repokit.cleanup").setLevel(logging.DEBUG)
+        logging.getLogger("repokit.patterns").setLevel(logging.DEBUG)
+
     # Log verbosity level for debugging
     if verbosity >= 1:
-        logger.info(f"Verbosity level: {verbosity}")
+        logger.info(f"Verbosity level: {verbosity} (-{'v' * verbosity})")
+        if verbosity >= 2:
+            logger.info("File operations debugging enabled")
+        if verbosity >= 3:
+            logger.info("Pattern matching and cleanup debugging enabled")
 
 
 def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:
@@ -891,6 +1523,16 @@ def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:
     if hasattr(args, "private_dirs") and args.private_dirs:
         cli_config["private_dirs"] = [
             dir.strip() for dir in args.private_dirs.split(",")
+        ]
+
+    if hasattr(args, "sensitive_files") and args.sensitive_files:
+        cli_config["sensitive_files"] = [
+            file.strip() for file in args.sensitive_files.split(",")
+        ]
+
+    if hasattr(args, "sensitive_patterns") and args.sensitive_patterns:
+        cli_config["sensitive_patterns"] = [
+            pattern.strip() for pattern in args.sensitive_patterns.split(",")
         ]
 
     # Handle branch strategy
@@ -1063,6 +1705,298 @@ def main() -> int:
             )
         
         return 0 if success else 1
+
+    elif args.command == "safe-merge-dev":
+        from .history_protection import HistoryProtectionManager
+        
+        # Get configuration for history protection
+        history_config = config.get('history_protection', {})
+        
+        # Initialize manager
+        manager = HistoryProtectionManager(
+            repo_path=os.getcwd(),
+            config=config,
+            verbose=args.verbose
+        )
+        
+        # Determine squash behavior
+        squash = None
+        if args.squash:
+            squash = True
+        elif args.no_squash:
+            squash = False
+        
+        # Perform the merge
+        success = manager.safe_merge_dev(
+            branch=args.branch,
+            target_branch=args.target,
+            squash=squash,
+            message=args.message,
+            preserve_last=args.preserve_last,
+            dry_run=args.preview
+        )
+        
+        return 0 if success else 1
+
+    elif args.command == "clean-history":
+        from .history_cleaner import HistoryCleaner, CleaningConfig, CleaningRecipe, GitFilterRepoNotFound
+        
+        try:
+            # Initialize cleaner
+            cleaner = HistoryCleaner(repo_path=os.getcwd(), verbose=args.verbose)
+            
+            # Interactive mode if no recipe specified
+            if not args.recipe and not args.remove_paths:
+                # Analyze repository
+                analysis = cleaner.analyze_repository()
+                
+                print("\n=== Repository Analysis ===")
+                print(f"Total commits: {analysis['total_commits']}")
+                print(f"Branches: {len(analysis['branches'])}")
+                
+                if analysis['private_paths']:
+                    print(f"\nFound {len(analysis['private_paths'])} private files:")
+                    for path in analysis['private_paths'][:10]:
+                        print(f"  - {path}")
+                    if len(analysis['private_paths']) > 10:
+                        print(f"  ... and {len(analysis['private_paths']) - 10} more")
+                
+                if analysis['windows_issues']:
+                    print(f"\nFound {len(analysis['windows_issues'])} Windows compatibility issues:")
+                    for path in analysis['windows_issues'][:5]:
+                        print(f"  - {path}")
+                    if len(analysis['windows_issues']) > 5:
+                        print(f"  ... and {len(analysis['windows_issues']) - 5} more")
+                
+                # Suggest recipe
+                if analysis['private_paths']:
+                    print("\n💡 Suggestion: Use --recipe pre-open-source to remove private files")
+                if analysis['windows_issues']:
+                    print("💡 Suggestion: Use --recipe windows-safe to fix Windows issues")
+                
+                return 0
+            
+            # Build configuration
+            if args.recipe:
+                recipe = CleaningRecipe(args.recipe)
+                config = cleaner.get_recipe_config(recipe)
+            else:
+                config = CleaningConfig(recipe=CleaningRecipe.CUSTOM)
+            
+            # Override with command-line options
+            if args.remove_paths:
+                config.paths_to_remove = args.remove_paths
+            if args.cutoff_sha:
+                config.cutoff_sha = args.cutoff_sha
+            if args.cutoff_date:
+                config.cutoff_date = args.cutoff_date
+            
+            config.dry_run = args.dry_run
+            config.force = args.force
+            if args.no_backup:
+                config.backup_location = 'skip'
+            elif args.backup_location:
+                config.backup_location = args.backup_location
+            
+            # Preview if requested
+            if args.dry_run:
+                preview = cleaner.preview_cleaning(config)
+                print("\n=== Cleaning Preview ===")
+                print(f"Recipe: {preview['recipe']}")
+                if preview['paths_to_remove']:
+                    print(f"Paths to remove: {', '.join(preview['paths_to_remove'])}")
+                if preview['estimated_impact']:
+                    print(f"Estimated impact: {preview['estimated_impact']}")
+                if preview['warnings']:
+                    print("\nWarnings:")
+                    for warning in preview['warnings']:
+                        print(f"  ⚠️  {warning}")
+            
+            # Execute cleaning
+            success = cleaner.clean_history(config)
+            return 0 if success else 1
+            
+        except GitFilterRepoNotFound as e:
+            logger.error(str(e))
+            print("\nTo install git filter-repo:")
+            print("  pip install git-filter-repo")
+            print("\nOr see: https://github.com/newren/git-filter-repo")
+            return 1
+        except Exception as e:
+            logger.error(f"Error cleaning history: {str(e)}")
+            if args.verbose >= 2:
+                import traceback
+                traceback.print_exc()
+            return 1
+
+    elif args.command == "manage-gitkeep":
+        from .directory_profiles import DirectoryProfileManager
+        
+        try:
+            # Resolve directory path
+            directory = os.path.abspath(args.directory)
+            if not os.path.exists(directory):
+                logger.error(f"Directory does not exist: {directory}")
+                return 1
+            
+            if not os.path.isdir(directory):
+                logger.error(f"Path is not a directory: {directory}")
+                return 1
+            
+            # Determine recursiveness (--no-recursive overrides default)
+            recursive = args.recursive and not args.no_recursive
+            
+            # Initialize directory profile manager
+            profile_manager = DirectoryProfileManager(verbose=args.verbose)
+            
+            if args.dry_run:
+                logger.info(f"DRY RUN: Analyzing .gitkeep files in {directory} (recursive: {recursive})")
+                
+                # Create a temporary function to simulate the changes
+                def simulate_manage_gitkeep(base_path: str, recursive: bool = True):
+                    result = {"added": [], "removed": []}
+                    
+                    def process_directory(dir_path: str, relative_path: str = ""):
+                        if not os.path.isdir(dir_path):
+                            return
+                            
+                        gitkeep_path = os.path.join(dir_path, ".gitkeep")
+                        gitkeep_exists = os.path.exists(gitkeep_path)
+                        
+                        try:
+                            items = [item for item in os.listdir(dir_path) if item != ".gitkeep"]
+                        except PermissionError:
+                            return
+                        
+                        non_hidden_items = [item for item in items if not item.startswith(".")]
+                        is_empty = len(non_hidden_items) == 0
+                        
+                        if is_empty and not gitkeep_exists:
+                            result["added"].append(os.path.join(relative_path, ".gitkeep") if relative_path else ".gitkeep")
+                        elif not is_empty and gitkeep_exists:
+                            result["removed"].append(os.path.join(relative_path, ".gitkeep") if relative_path else ".gitkeep")
+                            
+                        if recursive:
+                            for item in items:
+                                item_path = os.path.join(dir_path, item)
+                                if os.path.isdir(item_path) and not item.startswith("."):
+                                    item_relative = os.path.join(relative_path, item) if relative_path else item
+                                    process_directory(item_path, item_relative)
+                    
+                    process_directory(base_path)
+                    return result
+                
+                result = simulate_manage_gitkeep(directory, recursive)
+            else:
+                # Actually manage the .gitkeep files
+                logger.info(f"Managing .gitkeep files in {directory} (recursive: {recursive})")
+                result = profile_manager.manage_gitkeep_files(directory, recursive)
+            
+            # Report results
+            if result["added"]:
+                if args.dry_run:
+                    print(f"\nWould ADD .gitkeep files to {len(result['added'])} empty directories:")
+                else:
+                    print(f"\nADDED .gitkeep files to {len(result['added'])} empty directories:")
+                for file_path in result["added"]:
+                    print(f"  + {file_path}")
+            
+            if result["removed"]:
+                if args.dry_run:
+                    print(f"\nWould REMOVE .gitkeep files from {len(result['removed'])} non-empty directories:")
+                else:
+                    print(f"\nREMOVED .gitkeep files from {len(result['removed'])} non-empty directories:")
+                for file_path in result["removed"]:
+                    print(f"  - {file_path}")
+            
+            if not result["added"] and not result["removed"]:
+                print("\nNo .gitkeep file changes needed.")
+            else:
+                total_changes = len(result["added"]) + len(result["removed"])
+                if args.dry_run:
+                    print(f"\nDry run complete. {total_changes} changes would be made.")
+                else:
+                    print(f"\nManagement complete. {total_changes} changes made.")
+            
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Error managing .gitkeep files: {str(e)}")
+            if args.verbose >= 2:
+                import traceback
+                traceback.print_exc()
+            return 1
+
+    elif args.command == "analyze-history":
+        from .history_cleaner import HistoryCleaner, GitFilterRepoNotFound
+        
+        try:
+            # Initialize cleaner
+            cleaner = HistoryCleaner(repo_path=os.getcwd(), verbose=args.verbose)
+            
+            # Analyze repository
+            analysis = cleaner.analyze_repository()
+            
+            print("\n=== Repository History Analysis ===")
+            print(f"Repository: {os.getcwd()}")
+            print(f"Total commits: {analysis['total_commits']}")
+            print(f"Branches: {', '.join(analysis['branches'][:5])}")
+            if len(analysis['branches']) > 5:
+                print(f"         ... and {len(analysis['branches']) - 5} more")
+            
+            # Private paths
+            if analysis['private_paths']:
+                print(f"\n🔒 Private/Sensitive Paths ({len(analysis['private_paths'])} found):")
+                by_type = {}
+                for path in analysis['private_paths']:
+                    if path.startswith('private/'):
+                        by_type.setdefault('private/', []).append(path)
+                    elif path.startswith('logs/'):
+                        by_type.setdefault('logs/', []).append(path)
+                    elif path == 'CLAUDE.md':
+                        by_type.setdefault('AI files', []).append(path)
+                    else:
+                        by_type.setdefault('other', []).append(path)
+                
+                for type_name, paths in by_type.items():
+                    print(f"\n  {type_name}: {len(paths)} files")
+                    for path in paths[:3]:
+                        print(f"    - {path}")
+                    if len(paths) > 3:
+                        print(f"    ... and {len(paths) - 3} more")
+            
+            # Windows issues
+            if analysis['windows_issues']:
+                print(f"\n⚠️  Windows Compatibility Issues ({len(analysis['windows_issues'])} found):")
+                for path in analysis['windows_issues'][:5]:
+                    print(f"  - {path}")
+                if len(analysis['windows_issues']) > 5:
+                    print(f"  ... and {len(analysis['windows_issues']) - 5} more")
+            
+            # Recommendations
+            print("\n📋 Recommendations:")
+            if analysis['private_paths']:
+                print("  1. Remove private files with: repokit clean-history --recipe pre-open-source")
+            if analysis['windows_issues']:
+                print("  2. Fix Windows issues with: repokit clean-history --recipe windows-safe")
+            if not analysis['private_paths'] and not analysis['windows_issues']:
+                print("  ✅ No sensitive data detected!")
+            
+            print("\n💡 Tip: Use --dry-run to preview changes before cleaning")
+            
+            return 0
+            
+        except GitFilterRepoNotFound as e:
+            logger.error(str(e))
+            print("\nTo install git filter-repo:")
+            print("  pip install git-filter-repo")
+            return 1
+        except Exception as e:
+            logger.error(f"Error analyzing history: {str(e)}")
+            if args.verbose >= 2:
+                import traceback
+                traceback.print_exc()
+            return 1
 
     elif args.command == "bootstrap":
         bootstrap_script = os.path.join(
@@ -1270,6 +2204,26 @@ def main() -> int:
                     f"  Template conflicts in '{template_dir}' ({info['conflicts']} files): {info['action']}"
                 )
 
+            # Create backup if requested
+            if hasattr(args, 'backup') and args.backup and not args.dry_run:
+                import shutil
+                import datetime
+                
+                # Determine backup location
+                if hasattr(args, 'backup_location') and args.backup_location:
+                    backup_path = os.path.abspath(args.backup_location)
+                else:
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_path = os.path.abspath(f"{os.path.basename(dir_path)}_backup_{timestamp}")
+                
+                try:
+                    print(f"\nCreating backup at: {backup_path}")
+                    shutil.copytree(dir_path, backup_path, symlinks=True)
+                    print(f"✓ Backup created successfully")
+                except Exception as e:
+                    logger.error(f"Failed to create backup: {str(e)}")
+                    return 1
+
             # Confirm migration
             if not args.dry_run and not args.quiet:
                 confirm = input("\nProceed with migration? [y/N]: ")
@@ -1333,6 +2287,21 @@ def main() -> int:
             return 1
 
         try:
+            # Update configuration with adopt-specific options
+            adopt_config = config.copy()
+            
+            # Set repo name based on --repo-name or directory name
+            repo_name = getattr(args, 'repo_name', None) or os.path.basename(dir_path)
+            adopt_config["name"] = repo_name
+            
+            # Override language if specified
+            if hasattr(args, 'language') and args.language:
+                adopt_config["language"] = args.language
+                
+            # Override description if specified
+            if hasattr(args, 'description') and args.description:
+                adopt_config["description"] = args.description
+
             # First analyze the project
             summary = analyze_project(dir_path, verbose=args.verbose)
 
@@ -1344,7 +2313,8 @@ def main() -> int:
             # Check if already RepoKit
             if summary["project_type"] == "repokit":
                 print("  Project is already using RepoKit structure.")
-                return 0
+                if not args.publish_to:
+                    return 0
 
             # Warn about uncommitted changes
             git_state = summary.get("git_state", {})
@@ -1374,40 +2344,191 @@ def main() -> int:
             if args.dry_run:
                 print(f"  DRY RUN - No changes will be made")
 
-            # Execute adoption
-            success = adopt_project(
-                directory=dir_path,
-                strategy=strategy,
-                branch_strategy=branch_strategy,
-                publish_to=args.publish_to,
-                dry_run=args.dry_run,
-                verbose=args.verbose,
-            )
+            # Create backup if requested
+            if hasattr(args, 'backup') and args.backup and not args.dry_run:
+                import shutil
+                import datetime
+                
+                # Determine backup location
+                if hasattr(args, 'backup_location') and args.backup_location:
+                    backup_path = os.path.abspath(args.backup_location)
+                else:
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    backup_path = os.path.abspath(f"{os.path.basename(dir_path)}_backup_{timestamp}")
+                
+                try:
+                    print(f"  Creating backup at: {backup_path}")
+                    shutil.copytree(dir_path, backup_path, symlinks=True)
+                    print(f"  ✓ Backup created successfully")
+                except Exception as e:
+                    logger.error(f"Failed to create backup: {str(e)}")
+                    return 1
 
-            if success:
-                msg = (
-                    "Adoption analysis completed (dry run)"
-                    if args.dry_run
-                    else "Project adopted successfully!"
+            # Clean history if requested
+            if hasattr(args, 'clean_history') and args.clean_history and not args.dry_run:
+                try:
+                    from .history_cleaner import HistoryCleaner, CleaningConfig, CleaningRecipe, GitFilterRepoNotFound
+                    
+                    print(f"  Cleaning repository history using '{args.cleaning_recipe}' recipe...")
+                    
+                    # Initialize cleaner
+                    cleaner = HistoryCleaner(repo_path=dir_path, verbose=args.verbose)
+                    
+                    # Build cleaning config using default settings
+                    recipe_map = {
+                        "pre-open-source": CleaningRecipe.PRE_OPEN_SOURCE,
+                        "windows-safe": CleaningRecipe.WINDOWS_SAFE, 
+                        "remove-secrets": CleaningRecipe.REMOVE_SECRETS
+                    }
+                    
+                    # Get default config for the recipe
+                    recipe_enum = recipe_map[args.cleaning_recipe]
+                    config = cleaner.get_recipe_config(recipe_enum)
+                    
+                    # Override with adopt-specific settings
+                    config.backup_location = f"{backup_path}_pre_clean" if 'backup_path' in locals() else None
+                    config.dry_run = False
+                    config.force = True  # Skip confirmation prompts during adopt
+                    
+                    # Execute history cleaning
+                    success = cleaner.clean_history(config)
+                    if not success:
+                        logger.error("History cleaning failed - aborting adoption")
+                        return 1
+                    
+                    print(f"  ✓ Repository history cleaned successfully")
+                    
+                except GitFilterRepoNotFound as e:
+                    logger.error(str(e))
+                    print("\nTo install git filter-repo:")
+                    print("  pip install git-filter-repo")
+                    print("\nOr see: https://github.com/newren/git-filter-repo")
+                    return 1
+                except Exception as e:
+                    logger.error(f"Failed to clean history: {str(e)}")
+                    return 1
+
+            # Execute adoption using enhanced RepoManager approach
+            # Use RepoManager for non-repokit projects OR when publishing/templates are needed
+            if (summary["project_type"] != "repokit" or args.publish_to):
+                if args.dry_run:
+                    print(f"\n=== DRY RUN MODE - No changes will be made ===")
+                    print(f"Would execute RepoManager setup_repository() for:")
+                    print(f"  Project: {repo_name}")
+                    print(f"  Path: {dir_path}")
+                    print(f"  Language: {adopt_config.get('language', 'generic')}")
+                    print(f"  Branch strategy: {adopt_config.get('branch_strategy', 'standard')}")
+                    print(f"  Would publish to: {args.publish_to if args.publish_to else 'none'}")
+                    print(f"  Would create backup: {hasattr(args, 'backup') and args.backup}")
+                    print(f"  Would clean history: {hasattr(args, 'clean_history') and args.clean_history}")
+                    
+                    # Show what sensitive file cleanup would do
+                    from .defaults import DEFAULT_SENSITIVE_PATTERNS
+                    print(f"\nWould clean files matching these patterns:")
+                    for pattern in DEFAULT_SENSITIVE_PATTERNS[:5]:
+                        print(f"  - {pattern}")
+                    if len(DEFAULT_SENSITIVE_PATTERNS) > 5:
+                        print(f"  ... and {len(DEFAULT_SENSITIVE_PATTERNS) - 5} more patterns")
+                    
+                    print(f"\n=== DRY RUN COMPLETE - No actual changes made ===")
+                    return 0
+                # Initialize RepoManager with the merged configuration for in-place adoption
+                adopt_config["name"] = repo_name
+                # Set preserve_existing flag for adoption to avoid overwriting project files
+                adopt_config["preserve_existing"] = True
+                adopt_config["is_adoption"] = True  # Flag to indicate this is an adoption
+                
+                repo_manager = RepoManager(
+                    adopt_config, templates_dir=getattr(args, 'templates_dir', None), verbose=args.verbose
                 )
-                print(f"\n{msg}")
-
-                if not args.dry_run:
-                    print("\nNext steps:")
-                    print(f"  - Your project now uses RepoKit structure")
-                    print(f"  - Check the generated templates and configuration")
-                    print(f"  - Commit any new files to your repository")
-
-                    if args.publish_to:
-                        print(f"  - Repository will be published to {args.publish_to}")
-                    elif not git_state.get("remotes"):
-                        print(f"  - Consider publishing to a remote service:")
-                        print(f"    repokit publish {dir_path} --publish-to github")
-
-                return 0
+                
+                # Override the project_root and repo_root to adopt in-place
+                repo_manager.project_root = os.path.dirname(dir_path)
+                repo_manager.repo_root = dir_path
+                # Fix github_root path after override to ensure proper template deployment
+                repo_manager.github_root = os.path.join(repo_manager.project_root, "github")
+                
+                # Set up repository structure (this will add missing RepoKit structure)
+                success = repo_manager.setup_repository()
+                if not success:
+                    logger.error("Failed to set up RepoKit structure")
+                    return 1
             else:
-                logger.error("Project adoption failed.")
-                return 1
+                # Use the simple adopt_project for dry runs or already RepoKit projects
+                success = adopt_project(
+                    directory=dir_path,
+                    strategy=strategy,
+                    branch_strategy=branch_strategy,
+                    publish_to=args.publish_to,
+                    dry_run=args.dry_run,
+                    verbose=args.verbose,
+                )
+                if not success:
+                    logger.error("Project adoption failed.")
+                    return 1
+
+            # Handle remote publishing if requested
+            if args.publish_to and not args.dry_run:
+                from .remote_integration import RemoteIntegration
+                
+                # Update configuration for remote publishing
+                if hasattr(args, 'organization') and args.organization:
+                    if args.publish_to == "github":
+                        adopt_config.setdefault("github", {})["organization"] = args.organization
+                    else:
+                        adopt_config.setdefault("gitlab", {})["group"] = args.organization
+
+                # Initialize RepoManager for publishing (if not already done)
+                if summary["project_type"] == "repokit":
+                    repo_manager = RepoManager(
+                        adopt_config, templates_dir=getattr(args, 'templates_dir', None), verbose=args.verbose
+                    )
+                    repo_manager.project_root = os.path.dirname(dir_path)
+                    repo_manager.repo_root = dir_path
+
+                remote_integration = RemoteIntegration(
+                    repo_manager,
+                    credentials_file=getattr(args, 'credentials_file', None),
+                    verbose=args.verbose,
+                )
+
+                # Handle token - if direct token provided, create a command that echoes it
+                token_cmd = getattr(args, 'token_command', None)
+                if hasattr(args, 'token') and args.token and not token_cmd:
+                    token_cmd = f"echo {args.token}"
+
+                publish_success = remote_integration.setup_remote_repository(
+                    service=args.publish_to,
+                    remote_name=getattr(args, 'remote_name', 'origin'),
+                    private=getattr(args, 'private_repo', False),
+                    push_branches=not getattr(args, 'no_push', False),
+                    organization=getattr(args, 'organization', None),
+                    token_command=token_cmd,
+                )
+
+                if not publish_success:
+                    logger.error(f"Failed to publish repository to {args.publish_to}")
+                    return 1
+
+                logger.info(f"Successfully published repository to {args.publish_to}")
+
+            if args.dry_run:
+                print(f"\nAdoption analysis completed (dry run)")
+            else:
+                print(f"\nProject adopted successfully!")
+
+                print("\nNext steps:")
+                print(f"  - Your project now uses RepoKit structure")
+                print(f"  - Check the generated templates and configuration")
+                print(f"  - Commit any new files to your repository")
+
+                if args.publish_to:
+                    print(f"  - Repository has been published to {args.publish_to}")
+                elif not git_state.get("remotes"):
+                    print(f"  - Consider publishing to a remote service:")
+                    print(f"    repokit publish {dir_path} --publish-to github")
+
+            return 0
 
         except Exception as e:
             logger.error(f"Error adopting project: {str(e)}")
@@ -1483,8 +2604,9 @@ def main() -> int:
                 logger.error(f"Repository not found at {repo_path}")
                 return 1
 
-            # Update configuration with the correct path
-            config["name"] = os.path.basename(repo_path)
+            # Update configuration with the correct path and name
+            repo_name = args.repo_name if args.repo_name else os.path.basename(repo_path)
+            config["name"] = repo_name
 
             # Initialize RepoManager with the repository path
             repo_manager = RepoManager(
@@ -1504,13 +2626,20 @@ def main() -> int:
                 verbose=args.verbose,
             )
 
+            # Handle token - if direct token provided, create a command that echoes it
+            token_cmd = args.token_command
+            if args.token and not token_cmd:
+                token_cmd = f"echo {args.token}"
+            
             publish_success = remote_integration.setup_remote_repository(
                 service=args.publish_to,
                 remote_name=args.remote_name,
                 private=args.private_repo,
                 push_branches=not args.no_push,
                 organization=args.organization,
-                token_command=args.token_command,
+                token_command=token_cmd,
+                include_branches=getattr(args, 'include_branches', None),
+                exclude_branches=getattr(args, 'exclude_branches', None),
             )
 
             if not publish_success:

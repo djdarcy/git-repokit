@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
 
+from .defaults import DEFAULT_PRIVATE_DIRS, DEFAULT_BRANCH_STRATEGIES
+
 
 class GitManager:
     """
@@ -261,16 +263,28 @@ class ProjectAnalyzer:
 
     def _determine_project_type(self) -> str:
         """Determine project type based on structure and content."""
-        # Check if it's already a RepoKit project
-        repokit_indicators = [
-            "CLAUDE.md",
-            os.path.join("private", "claude"),
-            ".repokit.json",
-        ]
-
-        for indicator in repokit_indicators:
-            if os.path.exists(os.path.join(self.target_dir, indicator)):
+        # Check if it's definitively a RepoKit-managed project
+        repokit_config_path = os.path.join(self.target_dir, ".repokit.json")
+        if os.path.exists(repokit_config_path):
+            try:
+                with open(repokit_config_path, 'r') as f:
+                    config = json.load(f)
+                
+                # Check for RepoKit signature fields
+                if config.get("repokit_managed") or config.get("generated_by") == "repokit":
+                    return "repokit"
+                
+                # Even non-empty .repokit.json suggests RepoKit intent
+                if config:  # Non-empty config file
+                    return "repokit"
+                    
+            except (json.JSONDecodeError, IOError):
+                # If .repokit.json exists but is invalid, treat as RepoKit attempt
                 return "repokit"
+        
+        # Check for RepoKit-like structure (but not definitively RepoKit-managed)
+        if self._has_repokit_structure():
+            return "repokit_like"
 
         # Check for empty directory
         try:
@@ -436,6 +450,24 @@ class ProjectAnalyzer:
 
         return steps
 
+    def _has_repokit_structure(self) -> bool:
+        """
+        Check for RepoKit-specific directory structure patterns.
+        
+        Returns:
+            True if directory structure suggests RepoKit-like organization
+        """
+        # Check for RepoKit standard directories
+        repokit_dirs = ["private", "logs", "scripts", "tests", "docs"]
+        found_dirs = 0
+        
+        for directory in repokit_dirs:
+            if os.path.exists(os.path.join(self.target_dir, directory)):
+                found_dirs += 1
+        
+        # Require majority of RepoKit directories to suggest RepoKit structure
+        return found_dirs >= len(repokit_dirs) * 0.6
+
 
 class DirectoryAnalyzer:
     """
@@ -458,7 +490,7 @@ class DirectoryAnalyzer:
     ]
 
     # Private directories that shouldn't be checked in
-    PRIVATE_DIRS = ["private", "convos", "logs"]
+    PRIVATE_DIRS = DEFAULT_PRIVATE_DIRS
 
     # Special directories that need special handling
     SPECIAL_DIRS = [".git", ".github", ".vscode"]
@@ -1157,8 +1189,47 @@ class UniversalMigrationExecutor:
     def _setup_git_repository(self, branch_strategy: str) -> bool:
         """Set up Git repository with chosen branch strategy."""
         self.logger.info(f"Setting up Git repository with strategy: {branch_strategy}")
-        # Implementation would go here
-        return True
+        
+        try:
+            git_manager = GitManager(self.source_dir, self.verbose)
+            
+            # Define branch strategies
+            # Use centralized branch configurations from defaults.py
+            branches = DEFAULT_BRANCH_STRATEGIES.get(branch_strategy, ["private", "dev", "main"])
+            
+            # Get current repo state
+            repo_state = git_manager.get_repo_state()
+            current_branch = repo_state.get("current_branch")
+            existing_branches = set(repo_state.get("branches", []))
+            
+            self.logger.info(f"Current branch: {current_branch}")
+            self.logger.info(f"Existing branches: {existing_branches}")
+            self.logger.info(f"Target branches for {branch_strategy}: {branches}")
+            
+            # Create missing branches
+            for branch in branches:
+                if branch not in existing_branches:
+                    try:
+                        git_manager.run_git(["checkout", "-b", branch])
+                        self.logger.info(f"Created branch: {branch}")
+                        existing_branches.add(branch)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to create branch {branch}: {e}")
+            
+            # Switch to main/default branch
+            default_branch = "main" if "main" in branches else branches[-1]
+            if default_branch in existing_branches:
+                try:
+                    git_manager.run_git(["checkout", default_branch])
+                    self.logger.info(f"Switched to default branch: {default_branch}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to switch to {default_branch}: {e}")
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Failed to setup Git repository: {e}")
+            return False
 
     def _generate_templates(self) -> bool:
         """Generate appropriate templates."""
