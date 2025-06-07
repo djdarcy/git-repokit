@@ -292,6 +292,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   - https://docs.github.com/en/get-started/quickstart/github-flow
   - https://martinfowler.com/articles/continuousIntegration.html
   - https://www.atlassian.com/continuous-delivery
-  - https://www.perforce.com/manuals/p4sag/Content/P4SAG/branches-best-practices.html
+  - https://www.perforce.com/blog/vcs/best-branching-strategies-high-velocity-development
 - Built for developers who value consistency and automation
 - Special thanks to the open-source community
