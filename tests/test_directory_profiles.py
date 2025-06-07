@@ -14,7 +14,7 @@ from unittest.mock import patch, MagicMock
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from repokit.directory_profiles import DirectoryProfileManager, DEFAULT_PROFILES
+from repokit.directory_profiles import DirectoryProfileManager, DEFAULT_DIRECTORY_PROFILES
 from repokit.config import ConfigManager
 
 
