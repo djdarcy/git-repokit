@@ -12,68 +12,19 @@ import logging
 from pathlib import Path
 from typing import Dict, List, Set, Any, Optional
 
-from .defaults import DEFAULT_PRIVATE_DIRS as CENTRALIZED_PRIVATE_DIRS
+from .defaults import (
+    DEFAULT_PRIVATE_DIRS as CENTRALIZED_PRIVATE_DIRS,
+    DEFAULT_DIRECTORY_PROFILES,
+    DEFAULT_DIRECTORY_GROUPS,
+    DEFAULT_DIRECTORY_TYPE_MAPPING,
+    DEFAULT_PRIVATE_DIR_SETS
+)
 
 # Set up logging
 logger = logging.getLogger("repokit.directories")
 
-# Default directory profiles
-DEFAULT_PROFILES = {
-    "minimal": ["src", "tests", "docs"],
-    "standard": [
-        "src",
-        "tests",
-        "docs",
-        "scripts",
-        "config",
-        "logs",
-        "private",
-        "convos",
-        "revisions",
-    ],
-    "complete": [
-        "src",
-        "tests",
-        "docs",
-        "scripts",
-        "config",
-        "logs",
-        "private",
-        "convos",
-        "revisions",
-        "data",
-        "examples",
-        "tools",
-        "resources",
-        "assets",
-    ],
-}
-
-# Directory groups by purpose
-DEFAULT_GROUPS = {
-    "development": ["src", "tests", "scripts", "tools"],
-    "documentation": ["docs", "examples", "resources"],
-    "operations": ["config", "logs", "data"],
-    "privacy": ["private", "convos", "credentials"],
-}
-
-# Private directories (not committed to git)
-DEFAULT_PRIVATE_DIRS = {
-    "standard": CENTRALIZED_PRIVATE_DIRS.copy(),
-    "enhanced": CENTRALIZED_PRIVATE_DIRS + ["credentials", "secrets", "local"],
-}
-
-# Directory type mapping (conceptual → actual name)
-DEFAULT_TYPE_MAPPING = {
-    "src": "src",  # Will be customized for each project (e.g., "repokit")
-    "tests": "tests",
-    "docs": "docs",
-    "config": "config",
-    "scripts": "scripts",
-    "private": "private",
-    "convos": "convos",
-    "logs": "logs",
-}
+# Use centralized configurations from defaults.py
+# These are now imported directly, eliminating duplication
 
 
 class DirectoryProfileManager:
@@ -89,11 +40,11 @@ class DirectoryProfileManager:
         """
         self.verbose = verbose
 
-        # Initialize defaults
-        self.profiles = DEFAULT_PROFILES.copy()
-        self.groups = DEFAULT_GROUPS.copy()
-        self.private_dirs = DEFAULT_PRIVATE_DIRS.copy()
-        self.type_mapping = DEFAULT_TYPE_MAPPING.copy()
+        # Initialize defaults using centralized configurations
+        self.profiles = DEFAULT_DIRECTORY_PROFILES.copy()
+        self.groups = DEFAULT_DIRECTORY_GROUPS.copy()
+        self.private_dirs = DEFAULT_PRIVATE_DIR_SETS.copy()
+        self.type_mapping = DEFAULT_DIRECTORY_TYPE_MAPPING.copy()
 
         # Load custom configuration if provided
         if config_file:

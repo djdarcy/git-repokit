@@ -15,7 +15,7 @@ import json
 from pathlib import Path
 from typing import Dict, List, Set, Tuple, Optional, Any
 
-from .defaults import DEFAULT_PRIVATE_DIRS
+from .defaults import DEFAULT_PRIVATE_DIRS, DEFAULT_BRANCH_STRATEGIES
 
 
 class GitManager:
@@ -1194,15 +1194,8 @@ class UniversalMigrationExecutor:
             git_manager = GitManager(self.source_dir, self.verbose)
             
             # Define branch strategies
-            branch_configs = {
-                "simple": ["private", "dev", "main"],
-                "standard": ["private", "dev", "main", "test", "staging", "live"],
-                "gitflow": ["private", "develop", "main"],
-                "github-flow": ["private", "main"],
-                "minimal": ["main"]
-            }
-            
-            branches = branch_configs.get(branch_strategy, ["private", "dev", "main"])
+            # Use centralized branch configurations from defaults.py
+            branches = DEFAULT_BRANCH_STRATEGIES.get(branch_strategy, ["private", "dev", "main"])
             
             # Get current repo state
             repo_state = git_manager.get_repo_state()
