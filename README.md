@@ -1,7 +1,7 @@
 # RepoKit
 
 [![GitHub Workflow Status](https://github.com/djdarcy/git-repokit/actions/workflows/main.yml/badge.svg)](https://github.com/djdarcy/git-repokit/actions)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/djdarcy/git-repokit/releases)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue)](https://github.com/djdarcy/git-repokit/releases)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.7-darkgreen)](https://python.org/downloads)
 [![License](https://img.shields.io/badge/license-MIT-orange)](https://github.com/djdarcy/git-repokit/blob/main/LICENSE)
 [![GitHub Discussions](https://img.shields.io/badge/discussions-Welcome-lightgrey)](https://github.com/djdarcy/git-repokit/discussions)
@@ -295,9 +295,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
   - https://www.perforce.com/manuals/p4sag/Content/P4SAG/branches-best-practices.html
 - Built for developers who value consistency and automation
 - Special thanks to the open-source community
-
----
-
-**Current Version**: 0.2.0  
-**Requirements**: Python 3.7+  
-**No Runtime Dependencies**: Pure Python implementation

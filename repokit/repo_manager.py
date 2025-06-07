@@ -2031,10 +2031,11 @@ exit 0
         config_path = os.path.join(self.repo_root, ".repokit.json")
         
         # Build configuration with RepoKit signature
+        from . import __version__
         repokit_config = {
             "repokit_managed": True,
             "generated_by": "repokit",
-            "version": "0.4.0",  # Current RepoKit version
+            "version": __version__,  # Current RepoKit version
             "created_at": datetime.datetime.now().isoformat() + "Z",
             "project_name": self.project_name,
             "language": self.config.get("language", "generic"),

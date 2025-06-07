@@ -52,7 +52,8 @@ For detailed help on any command, use: repokit <command> --help
     )
 
     # Version argument
-    parser.add_argument("--version", action="version", version="RepoKit 0.4.0")
+    from . import __version__
+    parser.add_argument("--version", action="version", version=f"RepoKit {__version__}")
     
     # Global options that apply to all commands
     parser.add_argument(
