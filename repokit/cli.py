@@ -52,7 +52,7 @@ For detailed help on any command, use: repokit <command> --help
     )
 
     # Version argument
-    parser.add_argument("--version", action="version", version="RepoKit 0.3.0")
+    parser.add_argument("--version", action="version", version="RepoKit 0.4.0")
     
     # Global options that apply to all commands
     parser.add_argument(
@@ -467,26 +467,128 @@ The adopt command is safer than migrate for repositories with:
         """,
         epilog="""
 Examples:
-  # Adopt in current directory with basic structure
+
+BASIC ADOPTION:
+  # Adopt current directory with minimal setup
   repokit adopt
   
-  # Adopt with specific branch strategy and directory profile
-  repokit adopt --branch-strategy gitflow --dir-profile standard
+  # Adopt specific directory with standard profile
+  repokit adopt ./my-project --dir-profile standard
+
+PYTHON PROJECT ADOPTION (Real Example):
+  # Adopt a Python project with comprehensive setup and GitHub publishing
+  # This is the command used for the UNCtools project deployment
+  repokit adopt ./my-python-project \\
+    --branch-strategy simple \\
+    --migration-strategy safe \\
+    --dir-profile standard \\
+    --language python \\
+    --description "Universal Naming Convention (UNC) path tools for Python" \\
+    --publish-to github \\
+    --repo-name MyPythonTools \\
+    --private-repo \\
+    --ai claude \\
+    --backup \\
+    --backup-location ../backup-before-adoption
+
+GITHUB DEPLOYMENT RECIPES:
+  # Public GitHub repository
+  repokit adopt ./open-source-project \\
+    --publish-to github \\
+    --repo-name awesome-open-source \\
+    --language javascript \\
+    --dir-profile complete
+    
+  # Private GitHub repository with organization
+  repokit adopt ./company-project \\
+    --publish-to github \\
+    --repo-name internal-tools \\
+    --organization mycompany \\
+    --private-repo \\
+    --language python
+    
+  # Personal project with full configuration
+  repokit adopt ./personal-project \\
+    --publish-to github \\
+    --repo-name my-awesome-project \\
+    --private-repo \\
+    --description "My personal coding project" \\
+    --user-name "John Doe" \\
+    --user-email "john@example.com"
+
+BRANCH STRATEGY EXAMPLES:
+  # Simple strategy (main, dev, private)
+  repokit adopt --branch-strategy simple --language python
   
-  # Adopt and publish to GitHub with custom repo name
-  repokit adopt --publish-to github --repo-name my-awesome-project --organization myorg --private-repo
+  # GitFlow strategy (main, dev, feature, release, hotfix branches)
+  repokit adopt --branch-strategy gitflow --dir-profile complete
   
-  # Adopt with full configuration
-  repokit adopt ./myproject --language python --description "My Python project" \\
-    --dir-profile complete --branch-strategy standard \\
-    --user-name "John Doe" --user-email "john@example.com"
+  # GitHub Flow (main, feature branches)
+  repokit adopt --branch-strategy github-flow
   
-  # Adopt with custom directories and AI integration
-  repokit adopt --directories "data,models,notebooks" --ai claude \\
-    --private-dirs "experiments,prototypes"
+  # Custom branches
+  repokit adopt --branches "main,staging,production" --default-branch main
+
+DIRECTORY PROFILE EXAMPLES:
+  # Minimal profile (docs, tests, scripts)
+  repokit adopt --dir-profile minimal
   
-  # Dry run to preview changes
-  repokit adopt --dry-run --verbose
+  # Standard profile (docs, tests, scripts, examples, config)
+  repokit adopt --dir-profile standard
+  
+  # Complete profile (all directories including logs, private, revisions)
+  repokit adopt --dir-profile complete
+  
+  # Custom directories
+  repokit adopt --directories "data,models,notebooks,experiments"
+
+SENSITIVE FILE PROTECTION:
+  # Specify sensitive files to exclude from public branches
+  repokit adopt --sensitive-files ".env,secrets.json,api_keys.txt"
+  
+  # Specify sensitive patterns (vim backups, logs, private dirs)
+  repokit adopt --sensitive-patterns "*.log,*~,private/*,secrets/*"
+  
+  # Use enhanced privacy protection
+  repokit adopt --private-set enhanced --private-dirs "experiments,drafts"
+
+BACKUP AND SAFETY:
+  # Create backup before adoption
+  repokit adopt --backup --backup-location ../project-backup-$(date +%Y%m%d)
+  
+  # Dry run to preview all changes
+  repokit adopt --dry-run -vv
+  
+  # Clean git history during adoption
+  repokit adopt --clean-history --cleaning-recipe pre-open-source
+
+AI INTEGRATION:
+  # Add Claude AI integration files
+  repokit adopt --ai claude
+  
+  # Skip AI integration
+  repokit adopt --ai none
+
+COMMON WORKFLOWS:
+  1. Test adoption (recommended first step):
+     repokit adopt ./my-project --dry-run -vv
+     
+  2. Safe adoption with backup:
+     repokit adopt ./my-project --backup --backup-location ../backup
+     
+  3. GitHub deployment:
+     repokit adopt ./my-project --publish-to github --repo-name my-project --private-repo
+     
+  4. Complete adoption (full features):
+     repokit adopt ./my-project \\
+       --dir-profile complete \\
+       --branch-strategy simple \\
+       --language python \\
+       --ai claude \\
+       --publish-to github \\
+       --private-repo
+       
+For more detailed documentation, see: docs/Adoption-Guide.md
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )

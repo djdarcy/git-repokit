@@ -908,8 +908,17 @@ exit 0
         for branch in branches:
             if branch != private_branch:  # Skip private branch
                 try:
-                    # Create clean public branch using safe-merge-dev functionality
-                    self._create_clean_public_branch(branch, private_branch)
+                    # Choose approach based on whether this is an adoption
+                    is_adoption = self.config.get("is_adoption", False)
+                    
+                    if is_adoption:
+                        # Use selective approach for adoptions (privacy-first, no deletion commits)
+                        self.logger.info(f"Using selective branch creation for adoption (privacy-first)")
+                        self._create_clean_public_branch_selective(branch, private_branch)
+                    else:
+                        # Use existing approach for new repositories
+                        self.logger.info(f"Using standard branch creation for new repository")
+                        self._create_clean_public_branch(branch, private_branch)
                     
                     # Verify the branch is actually clean
                     if self._verify_clean_branch(branch):
@@ -918,14 +927,177 @@ exit 0
                         self.logger.error(f"Branch '{branch}' failed verification - contains private content!")
                         
                     if self.verbose >= 2:
+                        approach = "selective" if is_adoption else "standard"
                         self.logger.debug(
-                            f"Created clean public branch '{branch}' without private content"
+                            f"Created clean public branch '{branch}' using {approach} approach"
                         )
                 except Exception as e:
                     self.logger.warning(f"Failed to create clean public branch '{branch}': {str(e)}")
 
         # Switch back to private branch for continued development
         self.run_git(["checkout", private_branch], cwd=self.repo_root)
+
+    def _get_working_directory_files(self) -> List[str]:
+        """
+        Get all files from working directory (not git index).
+        
+        This is used for selective branch creation to examine filesystem
+        rather than git-tracked files.
+        
+        Returns:
+            List of relative file paths from repo root
+        """
+        all_files = []
+        for root, dirs, files in os.walk(self.repo_root):
+            # Skip .git directory
+            if ".git" in root.split(os.sep):
+                continue
+            for file in files:
+                file_path = os.path.join(root, file)
+                relative_path = os.path.relpath(file_path, self.repo_root)
+                all_files.append(relative_path)
+        return all_files
+    
+    def _filter_files_for_public_branch(self, file_list: List[str]) -> List[str]:
+        """
+        Filter out sensitive files using existing pattern infrastructure.
+        
+        Args:
+            file_list: List of file paths to filter
+            
+        Returns:
+            List of non-sensitive file paths safe for public branches
+        """
+        import fnmatch
+        from pathlib import Path
+        
+        clean_files = []
+        patterns_to_exclude = DEFAULT_SENSITIVE_PATTERNS.copy()
+        
+        # Add any additional patterns from config
+        config_patterns = self.config.get("sensitive_patterns", [])
+        if config_patterns:
+            patterns_to_exclude.extend(config_patterns)
+        
+        # Use existing BranchContext for additional pattern checking
+        from .branch_utils import BranchContext
+        context = BranchContext(self.repo_root, self._get_branch_config())
+        
+        for file_path in file_list:
+            is_sensitive = False
+            matching_pattern = None
+            
+            # Check against DEFAULT_SENSITIVE_PATTERNS
+            for pattern in patterns_to_exclude:
+                # Use same cross-platform pattern matching as cleanup
+                normalized_file = str(Path(file_path)).replace('\\', '/')
+                normalized_pattern = pattern.replace('\\', '/')
+                
+                matches = [
+                    fnmatch.fnmatch(normalized_file, normalized_pattern),
+                    fnmatch.fnmatch(os.path.basename(file_path), normalized_pattern),
+                    fnmatch.fnmatch(str(Path(file_path)), normalized_pattern),
+                ]
+                
+                if any(matches):
+                    is_sensitive = True
+                    matching_pattern = pattern
+                    break
+            
+            # Check against BranchContext patterns if not already flagged
+            if not is_sensitive:
+                # Use BranchContext to check if file should be excluded from public
+                private_files = context.check_private_files([file_path])
+                if private_files:
+                    is_sensitive = True
+                    matching_pattern = f"BranchContext: {private_files[0][1]}"
+            
+            if is_sensitive:
+                self.logger.debug(f"Excluding sensitive file from public branch: {file_path} (pattern: {matching_pattern})")
+            else:
+                clean_files.append(file_path)
+        
+        return clean_files
+    
+    def _create_clean_public_branch_selective(self, branch_name: str, source_branch: str) -> None:
+        """
+        Create public branch by selectively adding only non-sensitive files.
+        
+        This approach ensures sensitive files never enter the git history of public branches,
+        preventing privacy violations that would be created by deletion commits.
+        
+        Args:
+            branch_name: Name of the public branch to create
+            source_branch: Source branch (typically 'private')
+        """
+        try:
+            self.logger.info(f"Creating clean public branch '{branch_name}' using selective approach")
+            
+            # Get current branch to restore if something goes wrong
+            current_branch = self.run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd=self.repo_root).strip()
+            
+            # Check if branch already exists
+            existing_branches = self.run_git(["branch", "--list"], cwd=self.repo_root).splitlines()
+            branch_exists = any(branch_name in branch.strip() for branch in existing_branches)
+            
+            if branch_exists:
+                self.logger.info(f"Branch '{branch_name}' already exists, will recreate with selective approach")
+                # Delete existing branch to recreate cleanly
+                self.run_git(["branch", "-D", branch_name], cwd=self.repo_root, check=False)
+            
+            # Create orphan branch (clean slate with no history)
+            self.run_git(["checkout", "--orphan", branch_name], cwd=self.repo_root)
+            
+            # Clear git index (remove all staged files from orphan)
+            self.run_git(["reset"], cwd=self.repo_root)
+            
+            # Get all files from working directory (not git index)
+            all_files = self._get_working_directory_files()
+            self.logger.info(f"Found {len(all_files)} files in working directory")
+            
+            # Filter out sensitive files using existing patterns
+            clean_files = self._filter_files_for_public_branch(all_files)
+            excluded_count = len(all_files) - len(clean_files)
+            self.logger.info(f"Filtered to {len(clean_files)} clean files ({excluded_count} sensitive files excluded)")
+            
+            # Add only clean files to git index one by one
+            for file_path in clean_files:
+                try:
+                    self.run_git(["add", file_path], cwd=self.repo_root)
+                    if self.verbose >= 3:
+                        self.logger.debug(f"Added clean file to git index: {file_path}")
+                except Exception as e:
+                    self.logger.warning(f"Failed to add file {file_path}: {str(e)}")
+            
+            # Update .gitignore to ensure future privacy protection
+            from .branch_utils import BranchContext
+            context = BranchContext(self.repo_root, self._get_branch_config())
+            self._update_gitignore_for_public_branch(context)
+            
+            # Create initial commit with only clean files (no deletion history)
+            try:
+                staged_changes = self.run_git(["diff", "--cached", "--name-status"], cwd=self.repo_root)
+                if staged_changes.strip():
+                    commit_message = f"Initial {branch_name} branch setup\n\nCreated using selective file addition - no sensitive content included.\nFiles included: {len(clean_files)}"
+                    
+                    self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
+                    self.logger.info(f"Created clean public branch '{branch_name}' with {len(clean_files)} files")
+                else:
+                    self.logger.warning(f"No clean files to commit for branch '{branch_name}'")
+            except Exception as e:
+                self.logger.error(f"Failed to commit clean branch '{branch_name}': {str(e)}")
+                raise
+            
+            self.logger.info(f"Successfully created selective public branch '{branch_name}' with no privacy violations")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to create selective public branch '{branch_name}': {str(e)}")
+            # Try to switch back to original branch
+            try:
+                self.run_git(["checkout", current_branch], cwd=self.repo_root, check=False)
+            except:
+                pass
+            raise
 
     def _create_clean_public_branch(self, branch_name: str, source_branch: str) -> None:
         """
@@ -1862,7 +2034,7 @@ exit 0
         repokit_config = {
             "repokit_managed": True,
             "generated_by": "repokit",
-            "version": "0.3.0",  # Current RepoKit version
+            "version": "0.4.0",  # Current RepoKit version
             "created_at": datetime.datetime.now().isoformat() + "Z",
             "project_name": self.project_name,
             "language": self.config.get("language", "generic"),
