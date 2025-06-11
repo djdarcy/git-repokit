@@ -196,12 +196,51 @@ class RepoManager:
         self.logger.info(f"Managed .gitkeep files: {len(result['added'])} added, {len(result['removed'])} removed")
         return result
 
+    def _get_git_version(self):
+        """Get git version for feature compatibility."""
+        try:
+            import re
+            import subprocess
+            version_output = subprocess.check_output(['git', '--version'], text=True)
+            # Parse "git version 2.34.1" -> (2, 34, 1)
+            match = re.search(r'git version (\d+)\.(\d+)\.(\d+)', version_output)
+            if match:
+                return tuple(map(int, match.groups()))
+            return (0, 0, 0)  # Fallback for unparseable versions
+        except Exception:
+            return (0, 0, 0)  # Fallback for missing git
+
+    def _supports_initial_branch(self):
+        """Check if git supports --initial-branch flag (Git 2.28+)."""
+        version = self._get_git_version()
+        return version >= (2, 28, 0)
+
     def _init_git_repos(self) -> None:
         """Initialize git repositories."""
         self.logger.info("Initializing git repositories")
 
-        # Initialize main repository
-        self.run_git(["init"], cwd=self.repo_root)
+        # Check if git is already initialized
+        git_dir = os.path.join(self.repo_root, ".git")
+        if os.path.exists(git_dir):
+            self.logger.info("Git repository already initialized")
+        else:
+            # For adoptions, start with the private branch to avoid untracked file conflicts
+            is_adoption = self.config.get("is_adoption", False)
+            if is_adoption:
+                private_branch = self.config.get("private_branch", "private")
+                
+                if self._supports_initial_branch():
+                    # Modern Git: use --initial-branch
+                    self.run_git(["init", "--initial-branch", private_branch], cwd=self.repo_root)
+                    self.logger.info(f"Initialized git with initial branch: {private_branch}")
+                else:
+                    # Older Git: use symbolic-ref to set HEAD before first commit
+                    self.run_git(["init"], cwd=self.repo_root)
+                    self.run_git(["symbolic-ref", "HEAD", f"refs/heads/{private_branch}"], cwd=self.repo_root)
+                    self.logger.info(f"Initialized git and set HEAD to: {private_branch}")
+            else:
+                # Regular project creation
+                self.run_git(["init"], cwd=self.repo_root)
 
         # Configure user information if provided
         user = self.config.get("user", {})
@@ -242,6 +281,105 @@ class RepoManager:
 
         # Check if this is an adoption (existing repo) or new repo
         is_adoption = self.config.get("is_adoption", False)
+        
+        # For adoptions, check if we need to create an initial commit
+        if is_adoption:
+            # Check if there are any commits in the repository
+            try:
+                self.run_git(["rev-parse", "HEAD"], cwd=self.repo_root)
+                has_commits = True
+                self.logger.info("Found existing commits in repository")
+            except Exception:
+                has_commits = False
+                self.logger.info("No commits found in repository - will create initial commit")
+            
+            # If no commits exist, we need to create one before we can create branches
+            if not has_commits:
+                # First, create a .gitignore to handle sensitive files before any commits
+                gitignore_path = os.path.join(self.repo_root, ".gitignore")
+                
+                # Generate the base .gitignore from template
+                language = self.config.get("language", "generic")
+                context = {
+                    "project_name": self.project_name,
+                    "description": self.config.get("description", ""),
+                    "language": language,
+                }
+                
+                # Use template engine to render the base gitignore
+                self.template_engine.render_template_to_file(
+                    "gitignore",
+                    gitignore_path,
+                    context,
+                    category="common",  # Use common template
+                    preserve_existing=False  # We want to create fresh
+                )
+                
+                # Now append adoption-specific patterns
+                adoption_patterns = []
+                
+                # Add sensitive patterns from config
+                sensitive_patterns = self.config.get('sensitive_patterns', [])
+                if sensitive_patterns:
+                    adoption_patterns.append("\n# Adoption-specific sensitive files (from --sensitive-patterns)")
+                    # Handle both comma-separated strings and lists
+                    if isinstance(sensitive_patterns, str):
+                        patterns = [p.strip() for p in sensitive_patterns.split(',')]
+                    else:
+                        patterns = sensitive_patterns
+                    adoption_patterns.extend(patterns)
+                    adoption_patterns.append("")
+                
+                # Add private directories from config
+                private_dirs = self.config.get('private_dirs', [])
+                if private_dirs:
+                    adoption_patterns.append("# Adoption-specific private directories (from --private-dirs)")
+                    # Handle both comma-separated strings and lists
+                    if isinstance(private_dirs, str):
+                        dirs = [d.strip() for d in private_dirs.split(',')]
+                    else:
+                        dirs = private_dirs
+                    for dir_name in dirs:
+                        adoption_patterns.append(f"{dir_name}/")
+                    adoption_patterns.append("")
+                
+                # Append adoption patterns to the template-generated .gitignore
+                if adoption_patterns:
+                    with open(gitignore_path, "a") as f:
+                        f.write("\n".join(adoption_patterns))
+                    self.logger.info(f"Added {len(adoption_patterns)} adoption-specific patterns to .gitignore")
+                
+                # Create a minimal .gitkeep file with RepoKit adoption metadata
+                gitkeep_path = os.path.join(self.repo_root, ".gitkeep")
+                
+                # Create adoption metadata
+                import json
+                from datetime import datetime
+                
+                adoption_metadata = {
+                    "repokit_adoption": {
+                        "timestamp": datetime.now().isoformat(),
+                        "repokit_version": "0.4.0",  # TODO: Get from version
+                        "project_name": self.project_name,
+                        "description": self.config.get('description', ''),
+                        "branch_strategy": self.config.get('branch_strategy', 'standard'),
+                        "migration_strategy": self.config.get('migration_strategy', 'safe'),
+                        "note": "This file was created to establish git history during RepoKit adoption. It can be safely removed after setup is complete."
+                    }
+                }
+                
+                with open(gitkeep_path, "w") as f:
+                    f.write("# RepoKit Adoption Bootstrap File\n")
+                    f.write("# This file establishes initial git history for RepoKit adoption\n")
+                    f.write("# It can be safely removed after project setup is complete\n\n")
+                    f.write(json.dumps(adoption_metadata, indent=2))
+                
+                # Add the bootstrap files and respect the new .gitignore
+                self.run_git(["add", ".gitignore", ".gitkeep"], cwd=self.repo_root)
+                # Add other files that should be tracked (respecting .gitignore)
+                self.run_git(["add", "."], cwd=self.repo_root)
+                self.run_git(["commit", "-m", "Initial commit for RepoKit adoption\n\nBootstrap commit to establish git history.\nThis commit can be squashed or removed after adoption is complete."], cwd=self.repo_root)
+                self.logger.info("Created initial bootstrap commit for adoption")
         
         # For new repos, create an initial commit
         if not is_adoption:
@@ -295,20 +433,24 @@ class RepoManager:
         is_adoption = self.config.get("is_adoption", False)
         
         if is_adoption:
-            # For adoption, create private branch from current branch and skip branch renames
+            # For adoption, we should already be on the private branch from _init_git_repos
             private_branch = self.config.get("private_branch", "private")
             current_branch = self.run_git(["branch", "--show-current"], cwd=self.repo_root)
             
-            # Create private branch if it doesn't exist
-            existing_branches = self.run_git(["branch", "--list"], cwd=self.repo_root).splitlines()
-            branch_names = [b.strip().lstrip('* ') for b in existing_branches]
+            # Verify we're on the private branch (should be true from git init)
+            if current_branch != private_branch:
+                self.logger.warning(f"Expected to be on {private_branch} branch, but on {current_branch}")
+                # Create private branch if it doesn't exist and switch to it
+                existing_branches = self.run_git(["branch", "--list"], cwd=self.repo_root).splitlines()
+                branch_names = [b.strip().lstrip('* ') for b in existing_branches]
+                
+                if private_branch not in branch_names:
+                    self.run_git(["branch", private_branch], cwd=self.repo_root)
+                
+                # Switch to private branch (this should now work since we committed files earlier)
+                self.run_git(["checkout", private_branch], cwd=self.repo_root)
             
-            if private_branch not in branch_names:
-                self.run_git(["branch", private_branch], cwd=self.repo_root)
-            
-            # Switch to private branch
-            self.run_git(["checkout", private_branch], cwd=self.repo_root)
-            
+            self.logger.info(f"Working on private branch: {private_branch}")
             # Note: Public branches (main, dev) will be created in _create_initial_commit
         else:
             # For new repos, follow original logic
@@ -520,13 +662,39 @@ class RepoManager:
                 category="languages/python",
             )
 
-            # Create Python .gitignore
+            # Create Python .gitignore (preserve existing adoption-specific patterns)
+            gitignore_path = os.path.join(self.repo_root, ".gitignore")
+            
+            # Check if .gitignore already exists with adoption patterns
+            existing_adoption_patterns = ""
+            if os.path.exists(gitignore_path):
+                with open(gitignore_path, 'r') as f:
+                    content = f.read()
+                    # Look for adoption-specific patterns
+                    if "Adoption-specific" in content:
+                        # Extract everything after the last "# Add custom patterns below"
+                        lines = content.split('\n')
+                        start_idx = -1
+                        for i, line in enumerate(lines):
+                            if "Adoption-specific" in line:
+                                start_idx = i - 1  # Include the comment before
+                                break
+                        if start_idx >= 0:
+                            existing_adoption_patterns = '\n'.join(lines[start_idx:])
+            
+            # Generate new Python .gitignore
             self.template_engine.render_template_to_file(
                 "gitignore",
-                os.path.join(self.repo_root, ".gitignore"),
+                gitignore_path,
                 context,
                 category="languages/python",
             )
+            
+            # Re-append adoption patterns if they existed
+            if existing_adoption_patterns:
+                with open(gitignore_path, "a") as f:
+                    f.write("\n" + existing_adoption_patterns)
+                self.logger.info("Preserved adoption-specific patterns in Python .gitignore")
 
         elif language == "javascript":
             # Create package.json
