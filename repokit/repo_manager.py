@@ -242,38 +242,41 @@ class RepoManager:
                 # Regular project creation
                 self.run_git(["init"], cwd=self.repo_root)
 
-        # Configure user information if provided
+        # Configure git user information using enhanced GitConfigManager
+        from .git_config import GitConfigManager
+        git_config_manager = GitConfigManager(
+            repo_path=self.repo_root,
+            verbose=self.verbose
+        )
+        
+        # Get comprehensive user info, falling back to config
+        user_info = git_config_manager.get_comprehensive_user_info(interactive=False)
+        
+        # Override with explicit config values if provided
         user = self.config.get("user", {})
-        if not isinstance(user, dict):
-            user = {}
-        if user:
-            # Get user name
+        if isinstance(user, dict):
             if user.get("name"):
-                self.run_git(["config", "user.name", user["name"]], cwd=self.repo_root)
-                self.logger.info(f"Set Git user.name to: {user['name']}")
-
-            # Get user email with GitHub privacy protection
+                user_info["name"] = user["name"]
             if user.get("email"):
-                email = user["email"]
-
-                # Apply GitHub privacy protection if enabled and pushing to GitHub
-                if self.config.get("use_github_noreply", True) and self.config.get(
-                    "github", True
-                ):
-                    # If email isn't already a no-reply format
-                    if "@users.noreply.github.com" not in email:
-                        # Extract username from email or use first part
-                        username = email.split("@")[0]
-
-                        # Create GitHub no-reply email
-                        github_email = f"{username}@users.noreply.github.com"
-                        self.logger.info(
-                            f"Using GitHub no-reply email format: {github_email}"
-                        )
-                        email = github_email
-
-                self.run_git(["config", "user.email", email], cwd=self.repo_root)
-                self.logger.info(f"Set Git user.email to: {email}")
+                user_info["email"] = user["email"]
+        
+        # Apply GitHub privacy protection if enabled
+        if user_info.get("email"):
+            email = user_info["email"]
+            
+            if self.config.get("use_github_noreply", True) and self.config.get("github", True):
+                # If email isn't already a no-reply format
+                if "@users.noreply.github.com" not in email:
+                    # Extract username from email or use first part
+                    username = email.split("@")[0]
+                    
+                    # Create GitHub no-reply email
+                    github_email = f"{username}@users.noreply.github.com"
+                    self.logger.info(f"Using GitHub no-reply email format: {github_email}")
+                    user_info["email"] = github_email
+        
+        # Configure git user settings in repository
+        git_config_manager.configure_repo_git_user(user_info)
 
     def _setup_branches(self) -> None:
         """Set up repository branches."""
@@ -320,8 +323,9 @@ class RepoManager:
                 
                 # Add sensitive patterns from config
                 sensitive_patterns = self.config.get('sensitive_patterns', [])
+                self.logger.debug(f"Found sensitive_patterns in config: {sensitive_patterns}")
                 if sensitive_patterns:
-                    adoption_patterns.append("\n# Adoption-specific sensitive files (from --sensitive-patterns)")
+                    adoption_patterns.append("\n# Adoption-specific sensitive files")
                     # Handle both comma-separated strings and lists
                     if isinstance(sensitive_patterns, str):
                         patterns = [p.strip() for p in sensitive_patterns.split(',')]
@@ -333,7 +337,7 @@ class RepoManager:
                 # Add private directories from config
                 private_dirs = self.config.get('private_dirs', [])
                 if private_dirs:
-                    adoption_patterns.append("# Adoption-specific private directories (from --private-dirs)")
+                    adoption_patterns.append("# Adoption-specific private directories")
                     # Handle both comma-separated strings and lists
                     if isinstance(private_dirs, str):
                         dirs = [d.strip() for d in private_dirs.split(',')]
@@ -344,10 +348,13 @@ class RepoManager:
                     adoption_patterns.append("")
                 
                 # Append adoption patterns to the template-generated .gitignore
+                self.logger.debug(f"Final adoption_patterns list: {adoption_patterns}")
                 if adoption_patterns:
                     with open(gitignore_path, "a") as f:
                         f.write("\n".join(adoption_patterns))
                     self.logger.info(f"Added {len(adoption_patterns)} adoption-specific patterns to .gitignore")
+                else:
+                    self.logger.warning("No adoption patterns to add to .gitignore")
                 
                 # Create a minimal .gitkeep file with RepoKit adoption metadata
                 gitkeep_path = os.path.join(self.repo_root, ".gitkeep")
@@ -387,17 +394,20 @@ class RepoManager:
             readme_path = os.path.join(self.repo_root, "README.md")
 
             # Generate README from template
-            # Get user info safely
-            user_info = self.config.get("user", {})
-            if not isinstance(user_info, dict):
-                user_info = {}
-
-            context = {
+            # Get enhanced git user information using GitConfigManager
+            from .git_config import GitConfigManager
+            git_config_manager = GitConfigManager(
+                repo_path=self.repo_root,
+                verbose=self.verbose
+            )
+            
+            base_context = {
                 "project_name": self.project_name,
                 "description": self.config.get("description", "A new project"),
-                "author": user_info.get("name", ""),
-                "author_email": user_info.get("email", ""),
             }
+            
+            # Enhance context with comprehensive git user information
+            context = git_config_manager.get_template_context(base_context)
 
             # Check if we should preserve existing README
             preserve_existing = self.config.get("preserve_existing", False)
@@ -576,15 +586,23 @@ class RepoManager:
                 template_name, output_path, ctx, category=category, preserve_existing=preserve_existing
             )
 
-        # Context for template rendering
-        context = {
+        # Get enhanced git user information using GitConfigManager
+        from .git_config import GitConfigManager
+        git_config_manager = GitConfigManager(
+            repo_path=self.repo_root,
+            verbose=self.verbose
+        )
+        
+        # Context for template rendering with enhanced git config
+        base_context = {
             "project_name": self.project_name,
             "language": language,
             "description": self.config.get("description", ""),
-            "author": self.config.get("user", {}).get("name", ""),
-            "author_email": self.config.get("user", {}).get("email", ""),
             "badges": self._generate_badges(language),
         }
+        
+        # Enhance context with comprehensive git user information
+        context = git_config_manager.get_template_context(base_context)
 
         # Create .github directory
         github_dir = os.path.join(self.repo_root, ".github")
@@ -713,21 +731,81 @@ class RepoManager:
                 category="languages/javascript",
             )
 
-            # Create JavaScript .gitignore
+            # Create JavaScript .gitignore (preserve existing adoption-specific patterns)
+            gitignore_path = os.path.join(self.repo_root, ".gitignore")
+            
+            # Check if .gitignore already exists with adoption patterns
+            existing_adoption_patterns = ""
+            if os.path.exists(gitignore_path):
+                with open(gitignore_path, 'r') as f:
+                    content = f.read()
+                    # Look for adoption-specific patterns
+                    if "Adoption-specific" in content:
+                        # Extract everything after the last "# Add custom patterns below"
+                        lines = content.split('\n')
+                        add_custom_found = False
+                        adoption_lines = []
+                        for line in lines:
+                            if "# Add custom patterns below" in line:
+                                add_custom_found = True
+                                continue
+                            if add_custom_found:
+                                adoption_lines.append(line)
+                        if adoption_lines:
+                            existing_adoption_patterns = '\n'.join(adoption_lines)
+                            self.logger.debug(f"Found existing adoption patterns to preserve: {len(adoption_lines)} lines")
+            
+            # Generate new JavaScript .gitignore
             self.template_engine.render_template_to_file(
                 "gitignore",
-                os.path.join(self.repo_root, ".gitignore"),
+                gitignore_path,
                 context,
                 category="languages/javascript",
             )
+            
+            # Re-append preserved adoption patterns if any existed
+            if existing_adoption_patterns.strip():
+                with open(gitignore_path, "a") as f:
+                    f.write(existing_adoption_patterns)
+                self.logger.info("Preserved adoption-specific patterns in JavaScript .gitignore")
         else:
-            # Create generic .gitignore
+            # Create generic .gitignore (preserve existing adoption-specific patterns)
+            gitignore_path = os.path.join(self.repo_root, ".gitignore")
+            
+            # Check if .gitignore already exists with adoption patterns
+            existing_adoption_patterns = ""
+            if os.path.exists(gitignore_path):
+                with open(gitignore_path, 'r') as f:
+                    content = f.read()
+                    # Look for adoption-specific patterns
+                    if "Adoption-specific" in content:
+                        # Extract everything after the last "# Add custom patterns below"
+                        lines = content.split('\n')
+                        add_custom_found = False
+                        adoption_lines = []
+                        for line in lines:
+                            if "# Add custom patterns below" in line:
+                                add_custom_found = True
+                                continue
+                            if add_custom_found:
+                                adoption_lines.append(line)
+                        if adoption_lines:
+                            existing_adoption_patterns = '\n'.join(adoption_lines)
+                            self.logger.debug(f"Found existing adoption patterns to preserve: {len(adoption_lines)} lines")
+            
+            # Generate new generic .gitignore
             self.template_engine.render_template_to_file(
                 "gitignore",
-                os.path.join(self.repo_root, ".gitignore"),
+                gitignore_path,
                 context,
                 category="common",
             )
+            
+            # Re-append preserved adoption patterns if any existed
+            if existing_adoption_patterns.strip():
+                with open(gitignore_path, "a") as f:
+                    f.write(existing_adoption_patterns)
+                self.logger.info("Preserved adoption-specific patterns in generic .gitignore")
 
         # Add VS Code launch.json for all languages
         vscode_dir = os.path.join(self.repo_root, ".vscode")
@@ -1191,8 +1269,9 @@ exit 0
         """
         Create public branch by selectively adding only non-sensitive files.
         
-        This approach ensures sensitive files never enter the git history of public branches,
-        preventing privacy violations that would be created by deletion commits.
+        This approach creates a branch with shared history (for merging) but ensures 
+        sensitive files are excluded from the initial commit on public branches.
+        The guardrails and hooks prevent future commits of private content.
         
         Args:
             branch_name: Name of the public branch to create
@@ -1213,11 +1292,11 @@ exit 0
                 # Delete existing branch to recreate cleanly
                 self.run_git(["branch", "-D", branch_name], cwd=self.repo_root, check=False)
             
-            # Create orphan branch (clean slate with no history)
-            self.run_git(["checkout", "--orphan", branch_name], cwd=self.repo_root)
+            # Create branch from source (maintains history for merging)
+            self.run_git(["checkout", "-b", branch_name], cwd=self.repo_root)
             
-            # Clear git index (remove all staged files from orphan)
-            self.run_git(["reset"], cwd=self.repo_root)
+            # Clear git index to rebuild with only clean files
+            self.run_git(["rm", "-r", "--cached", "."], cwd=self.repo_root)
             
             # Get all files from working directory (not git index)
             all_files = self._get_working_directory_files()
@@ -1246,7 +1325,7 @@ exit 0
             try:
                 staged_changes = self.run_git(["diff", "--cached", "--name-status"], cwd=self.repo_root)
                 if staged_changes.strip():
-                    commit_message = f"Initial {branch_name} branch setup\n\nCreated using selective file addition - no sensitive content included.\nFiles included: {len(clean_files)}"
+                    commit_message = f"Initial {branch_name} branch setup\n\nCreated with selective file addition to exclude sensitive content.\nFiles included: {len(clean_files)}\nExcluded: {excluded_count} sensitive files"
                     
                     self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
                     self.logger.info(f"Created clean public branch '{branch_name}' with {len(clean_files)} files")
@@ -1256,7 +1335,7 @@ exit 0
                 self.logger.error(f"Failed to commit clean branch '{branch_name}': {str(e)}")
                 raise
             
-            self.logger.info(f"Successfully created selective public branch '{branch_name}' with no privacy violations")
+            self.logger.info(f"Successfully created selective public branch '{branch_name}' with shared history")
             
         except Exception as e:
             self.logger.error(f"Failed to create selective public branch '{branch_name}': {str(e)}")
