@@ -170,10 +170,3 @@ repokit-test-*/
 test_token.txt
 test_credentials.json
 github_test_token.txt
-
-# RepoKit Private Content (DO NOT REMOVE)
-CLAUDE.md
-private/claude/
-private/docs/
-private/notes/
-private/temp/

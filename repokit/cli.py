@@ -1543,6 +1543,27 @@ def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:
     if hasattr(args, "ai") and args.ai and args.ai != "none":
         cli_config["ai_integration"] = args.ai
 
+    # Handle backup configuration
+    if hasattr(args, "backup") and args.backup:
+        cli_config["backup"] = True
+    
+    if hasattr(args, "backup_location") and args.backup_location:
+        cli_config["backup_location"] = args.backup_location
+
+    # Handle migration strategy
+    if hasattr(args, "migration_strategy") and args.migration_strategy:
+        cli_config["migration_strategy"] = args.migration_strategy
+
+    # Handle remote publishing configuration  
+    if hasattr(args, "publish_to") and args.publish_to:
+        cli_config["publish_to"] = args.publish_to
+    
+    if hasattr(args, "repo_name") and args.repo_name:
+        cli_config["repo_name"] = args.repo_name
+        
+    if hasattr(args, "private_repo") and args.private_repo:
+        cli_config["private_repo"] = True
+
     # Handle branch directory mappings
     branch_directories = {}
 
@@ -2302,17 +2323,23 @@ def main() -> int:
             if hasattr(args, 'description') and args.description:
                 adopt_config["description"] = args.description
             
-            # Add adoption-specific sensitive patterns
+            # Merge adoption-specific sensitive patterns (CLI args + config file)
             if hasattr(args, 'sensitive_patterns') and args.sensitive_patterns:
-                adopt_config["sensitive_patterns"] = [
-                    pattern.strip() for pattern in args.sensitive_patterns.split(",")
-                ]
+                # Get existing patterns from config file
+                existing_patterns = adopt_config.get("sensitive_patterns", [])
+                # Add CLI patterns
+                cli_patterns = [pattern.strip() for pattern in args.sensitive_patterns.split(",")]
+                # Merge and deduplicate
+                adopt_config["sensitive_patterns"] = list(set(existing_patterns + cli_patterns))
             
-            # Add adoption-specific private directories  
+            # Merge adoption-specific private directories (CLI args + config file)
             if hasattr(args, 'private_dirs') and args.private_dirs:
-                adopt_config["private_dirs"] = [
-                    dir_name.strip() for dir_name in args.private_dirs.split(",")
-                ]
+                # Get existing private dirs from config file
+                existing_dirs = adopt_config.get("private_dirs", [])
+                # Add CLI dirs
+                cli_dirs = [dir_name.strip() for dir_name in args.private_dirs.split(",")]
+                # Merge and deduplicate
+                adopt_config["private_dirs"] = list(set(existing_dirs + cli_dirs))
 
             # First analyze the project
             summary = analyze_project(dir_path, verbose=args.verbose)
@@ -2430,7 +2457,8 @@ def main() -> int:
                     print(f"  Path: {dir_path}")
                     print(f"  Language: {adopt_config.get('language', 'generic')}")
                     print(f"  Branch strategy: {adopt_config.get('branch_strategy', 'standard')}")
-                    print(f"  Would publish to: {args.publish_to if args.publish_to else 'none'}")
+                    publish_to = getattr(args, 'publish_to', None) or adopt_config.get('publish_to')
+                    print(f"  Would publish to: {publish_to if publish_to else 'none'}")
                     print(f"  Would create backup: {hasattr(args, 'backup') and args.backup}")
                     print(f"  Would clean history: {hasattr(args, 'clean_history') and args.clean_history}")
                     
@@ -2449,6 +2477,10 @@ def main() -> int:
                 # Set preserve_existing flag for adoption to avoid overwriting project files
                 adopt_config["preserve_existing"] = True
                 adopt_config["is_adoption"] = True  # Flag to indicate this is an adoption
+                
+                # Debug: Log final adopt_config
+                logger.debug(f"Final adopt_config before RepoManager: {adopt_config}")
+                logger.debug(f"Sensitive patterns in adopt_config: {adopt_config.get('sensitive_patterns', 'NOT FOUND')}")
                 
                 repo_manager = RepoManager(
                     adopt_config, templates_dir=getattr(args, 'templates_dir', None), verbose=args.verbose
@@ -2479,16 +2511,18 @@ def main() -> int:
                     logger.error("Project adoption failed.")
                     return 1
 
-            # Handle remote publishing if requested
-            if args.publish_to and not args.dry_run:
+            # Handle remote publishing if requested (from CLI args or config file)
+            publish_to = getattr(args, 'publish_to', None) or adopt_config.get('publish_to')
+            if publish_to and not args.dry_run:
                 from .remote_integration import RemoteIntegration
                 
                 # Update configuration for remote publishing
-                if hasattr(args, 'organization') and args.organization:
-                    if args.publish_to == "github":
-                        adopt_config.setdefault("github", {})["organization"] = args.organization
+                organization = getattr(args, 'organization', None) or adopt_config.get('organization')
+                if organization:
+                    if publish_to == "github":
+                        adopt_config.setdefault("github", {})["organization"] = organization
                     else:
-                        adopt_config.setdefault("gitlab", {})["group"] = args.organization
+                        adopt_config.setdefault("gitlab", {})["group"] = organization
 
                 # Initialize RepoManager for publishing (if not already done)
                 if summary["project_type"] == "repokit":
@@ -2510,19 +2544,19 @@ def main() -> int:
                     token_cmd = f"echo {args.token}"
 
                 publish_success = remote_integration.setup_remote_repository(
-                    service=args.publish_to,
-                    remote_name=getattr(args, 'remote_name', 'origin'),
-                    private=getattr(args, 'private_repo', False),
+                    service=publish_to,
+                    remote_name=getattr(args, 'remote_name', None) or adopt_config.get('remote_name', 'origin'),
+                    private=getattr(args, 'private_repo', None) or adopt_config.get('private_repo', False),
                     push_branches=not getattr(args, 'no_push', False),
-                    organization=getattr(args, 'organization', None),
+                    organization=organization,
                     token_command=token_cmd,
                 )
 
                 if not publish_success:
-                    logger.error(f"Failed to publish repository to {args.publish_to}")
+                    logger.error(f"Failed to publish repository to {publish_to}")
                     return 1
 
-                logger.info(f"Successfully published repository to {args.publish_to}")
+                logger.info(f"Successfully published repository to {publish_to}")
 
             if args.dry_run:
                 print(f"\nAdoption analysis completed (dry run)")
@@ -2534,8 +2568,8 @@ def main() -> int:
                 print(f"  - Check the generated templates and configuration")
                 print(f"  - Commit any new files to your repository")
 
-                if args.publish_to:
-                    print(f"  - Repository has been published to {args.publish_to}")
+                if publish_to:
+                    print(f"  - Repository has been published to {publish_to}")
                 elif not git_state.get("remotes"):
                     print(f"  - Consider publishing to a remote service:")
                     print(f"    repokit publish {dir_path} --publish-to github")
