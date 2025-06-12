@@ -323,8 +323,9 @@ class RepoManager:
                 
                 # Add sensitive patterns from config
                 sensitive_patterns = self.config.get('sensitive_patterns', [])
+                self.logger.debug(f"Found sensitive_patterns in config: {sensitive_patterns}")
                 if sensitive_patterns:
-                    adoption_patterns.append("\n# Adoption-specific sensitive files (from --sensitive-patterns)")
+                    adoption_patterns.append("\n# Adoption-specific sensitive files")
                     # Handle both comma-separated strings and lists
                     if isinstance(sensitive_patterns, str):
                         patterns = [p.strip() for p in sensitive_patterns.split(',')]
@@ -336,7 +337,7 @@ class RepoManager:
                 # Add private directories from config
                 private_dirs = self.config.get('private_dirs', [])
                 if private_dirs:
-                    adoption_patterns.append("# Adoption-specific private directories (from --private-dirs)")
+                    adoption_patterns.append("# Adoption-specific private directories")
                     # Handle both comma-separated strings and lists
                     if isinstance(private_dirs, str):
                         dirs = [d.strip() for d in private_dirs.split(',')]
@@ -346,23 +347,14 @@ class RepoManager:
                         adoption_patterns.append(f"{dir_name}/")
                     adoption_patterns.append("")
                 
-                # Add sensitive file patterns to adoption patterns
-                sensitive_patterns = self.config.get("sensitive_patterns", [])
-                if sensitive_patterns:
-                    adoption_patterns.append("# Sensitive file patterns")
-                    if isinstance(sensitive_patterns, str):
-                        patterns = [p.strip() for p in sensitive_patterns.split(',')]
-                    else:
-                        patterns = sensitive_patterns
-                    for pattern in patterns:
-                        adoption_patterns.append(pattern)
-                    adoption_patterns.append("")
-                
                 # Append adoption patterns to the template-generated .gitignore
+                self.logger.debug(f"Final adoption_patterns list: {adoption_patterns}")
                 if adoption_patterns:
                     with open(gitignore_path, "a") as f:
                         f.write("\n".join(adoption_patterns))
                     self.logger.info(f"Added {len(adoption_patterns)} adoption-specific patterns to .gitignore")
+                else:
+                    self.logger.warning("No adoption patterns to add to .gitignore")
                 
                 # Create a minimal .gitkeep file with RepoKit adoption metadata
                 gitkeep_path = os.path.join(self.repo_root, ".gitkeep")
@@ -739,21 +731,81 @@ class RepoManager:
                 category="languages/javascript",
             )
 
-            # Create JavaScript .gitignore
+            # Create JavaScript .gitignore (preserve existing adoption-specific patterns)
+            gitignore_path = os.path.join(self.repo_root, ".gitignore")
+            
+            # Check if .gitignore already exists with adoption patterns
+            existing_adoption_patterns = ""
+            if os.path.exists(gitignore_path):
+                with open(gitignore_path, 'r') as f:
+                    content = f.read()
+                    # Look for adoption-specific patterns
+                    if "Adoption-specific" in content:
+                        # Extract everything after the last "# Add custom patterns below"
+                        lines = content.split('\n')
+                        add_custom_found = False
+                        adoption_lines = []
+                        for line in lines:
+                            if "# Add custom patterns below" in line:
+                                add_custom_found = True
+                                continue
+                            if add_custom_found:
+                                adoption_lines.append(line)
+                        if adoption_lines:
+                            existing_adoption_patterns = '\n'.join(adoption_lines)
+                            self.logger.debug(f"Found existing adoption patterns to preserve: {len(adoption_lines)} lines")
+            
+            # Generate new JavaScript .gitignore
             self.template_engine.render_template_to_file(
                 "gitignore",
-                os.path.join(self.repo_root, ".gitignore"),
+                gitignore_path,
                 context,
                 category="languages/javascript",
             )
+            
+            # Re-append preserved adoption patterns if any existed
+            if existing_adoption_patterns.strip():
+                with open(gitignore_path, "a") as f:
+                    f.write(existing_adoption_patterns)
+                self.logger.info("Preserved adoption-specific patterns in JavaScript .gitignore")
         else:
-            # Create generic .gitignore
+            # Create generic .gitignore (preserve existing adoption-specific patterns)
+            gitignore_path = os.path.join(self.repo_root, ".gitignore")
+            
+            # Check if .gitignore already exists with adoption patterns
+            existing_adoption_patterns = ""
+            if os.path.exists(gitignore_path):
+                with open(gitignore_path, 'r') as f:
+                    content = f.read()
+                    # Look for adoption-specific patterns
+                    if "Adoption-specific" in content:
+                        # Extract everything after the last "# Add custom patterns below"
+                        lines = content.split('\n')
+                        add_custom_found = False
+                        adoption_lines = []
+                        for line in lines:
+                            if "# Add custom patterns below" in line:
+                                add_custom_found = True
+                                continue
+                            if add_custom_found:
+                                adoption_lines.append(line)
+                        if adoption_lines:
+                            existing_adoption_patterns = '\n'.join(adoption_lines)
+                            self.logger.debug(f"Found existing adoption patterns to preserve: {len(adoption_lines)} lines")
+            
+            # Generate new generic .gitignore
             self.template_engine.render_template_to_file(
                 "gitignore",
-                os.path.join(self.repo_root, ".gitignore"),
+                gitignore_path,
                 context,
                 category="common",
             )
+            
+            # Re-append preserved adoption patterns if any existed
+            if existing_adoption_patterns.strip():
+                with open(gitignore_path, "a") as f:
+                    f.write(existing_adoption_patterns)
+                self.logger.info("Preserved adoption-specific patterns in generic .gitignore")
 
         # Add VS Code launch.json for all languages
         vscode_dir = os.path.join(self.repo_root, ".vscode")

@@ -1,0 +1,35 @@
+{
+    "name": "temp-renamer",
+    "description": "Temporary file/directory renaming utility for Windows with symlink and UNC path support",
+    "language": "python",
+    "directory_profile": "standard",
+    "private_dirs": ["private", "logs", "test-runs", "revisions"],
+    "branch_strategy": "simple",
+    "branch_config": {
+        "branch_directories": {
+            "main": "github",
+            "dev": "dev"
+        }
+    },
+    "github": true,
+    "private_repo": true,
+    "use_github_noreply": true,
+    "ai_integration": "claude",
+    "migration_strategy": "safe",
+    "backup": true,
+    "user": {
+        "name": "Dustin",
+        "email": "6962246+djdarcy@users.noreply.github.com"
+    },
+    "publish_to": "github",
+    "repo_name": "temp-renamer",
+    "sensitive_patterns": [
+        "*.log",
+        "logs/*",
+        "*.bak*",
+        "test-runs/*", 
+        "rename_mapping*.json",
+        "*.url"
+    ],
+    "_comment": "Configuration for temp-renamer utility project. Uses standard directory profile with simple branching strategy. Includes Windows-specific file patterns for sensitivity detection and custom private directories for logs, test runs, and revisions."
+}
