@@ -242,38 +242,41 @@ class RepoManager:
                 # Regular project creation
                 self.run_git(["init"], cwd=self.repo_root)
 
-        # Configure user information if provided
+        # Configure git user information using enhanced GitConfigManager
+        from .git_config import GitConfigManager
+        git_config_manager = GitConfigManager(
+            repo_path=self.repo_root,
+            verbose=self.verbose
+        )
+        
+        # Get comprehensive user info, falling back to config
+        user_info = git_config_manager.get_comprehensive_user_info(interactive=False)
+        
+        # Override with explicit config values if provided
         user = self.config.get("user", {})
-        if not isinstance(user, dict):
-            user = {}
-        if user:
-            # Get user name
+        if isinstance(user, dict):
             if user.get("name"):
-                self.run_git(["config", "user.name", user["name"]], cwd=self.repo_root)
-                self.logger.info(f"Set Git user.name to: {user['name']}")
-
-            # Get user email with GitHub privacy protection
+                user_info["name"] = user["name"]
             if user.get("email"):
-                email = user["email"]
-
-                # Apply GitHub privacy protection if enabled and pushing to GitHub
-                if self.config.get("use_github_noreply", True) and self.config.get(
-                    "github", True
-                ):
-                    # If email isn't already a no-reply format
-                    if "@users.noreply.github.com" not in email:
-                        # Extract username from email or use first part
-                        username = email.split("@")[0]
-
-                        # Create GitHub no-reply email
-                        github_email = f"{username}@users.noreply.github.com"
-                        self.logger.info(
-                            f"Using GitHub no-reply email format: {github_email}"
-                        )
-                        email = github_email
-
-                self.run_git(["config", "user.email", email], cwd=self.repo_root)
-                self.logger.info(f"Set Git user.email to: {email}")
+                user_info["email"] = user["email"]
+        
+        # Apply GitHub privacy protection if enabled
+        if user_info.get("email"):
+            email = user_info["email"]
+            
+            if self.config.get("use_github_noreply", True) and self.config.get("github", True):
+                # If email isn't already a no-reply format
+                if "@users.noreply.github.com" not in email:
+                    # Extract username from email or use first part
+                    username = email.split("@")[0]
+                    
+                    # Create GitHub no-reply email
+                    github_email = f"{username}@users.noreply.github.com"
+                    self.logger.info(f"Using GitHub no-reply email format: {github_email}")
+                    user_info["email"] = github_email
+        
+        # Configure git user settings in repository
+        git_config_manager.configure_repo_git_user(user_info)
 
     def _setup_branches(self) -> None:
         """Set up repository branches."""
@@ -387,17 +390,20 @@ class RepoManager:
             readme_path = os.path.join(self.repo_root, "README.md")
 
             # Generate README from template
-            # Get user info safely
-            user_info = self.config.get("user", {})
-            if not isinstance(user_info, dict):
-                user_info = {}
-
-            context = {
+            # Get enhanced git user information using GitConfigManager
+            from .git_config import GitConfigManager
+            git_config_manager = GitConfigManager(
+                repo_path=self.repo_root,
+                verbose=self.verbose
+            )
+            
+            base_context = {
                 "project_name": self.project_name,
                 "description": self.config.get("description", "A new project"),
-                "author": user_info.get("name", ""),
-                "author_email": user_info.get("email", ""),
             }
+            
+            # Enhance context with comprehensive git user information
+            context = git_config_manager.get_template_context(base_context)
 
             # Check if we should preserve existing README
             preserve_existing = self.config.get("preserve_existing", False)
@@ -576,15 +582,23 @@ class RepoManager:
                 template_name, output_path, ctx, category=category, preserve_existing=preserve_existing
             )
 
-        # Context for template rendering
-        context = {
+        # Get enhanced git user information using GitConfigManager
+        from .git_config import GitConfigManager
+        git_config_manager = GitConfigManager(
+            repo_path=self.repo_root,
+            verbose=self.verbose
+        )
+        
+        # Context for template rendering with enhanced git config
+        base_context = {
             "project_name": self.project_name,
             "language": language,
             "description": self.config.get("description", ""),
-            "author": self.config.get("user", {}).get("name", ""),
-            "author_email": self.config.get("user", {}).get("email", ""),
             "badges": self._generate_badges(language),
         }
+        
+        # Enhance context with comprehensive git user information
+        context = git_config_manager.get_template_context(base_context)
 
         # Create .github directory
         github_dir = os.path.join(self.repo_root, ".github")
