@@ -1227,11 +1227,30 @@ exit 0
                 # Delete existing branch to recreate cleanly
                 self.run_git(["branch", "-D", branch_name], cwd=self.repo_root, check=False)
             
-            # Create orphan branch (clean slate with no history)
-            self.run_git(["checkout", "--orphan", branch_name], cwd=self.repo_root)
+            # Try to create branch from public baseline tag if it exists
+            # This preserves git history relationships while maintaining privacy
+            baseline_tag = self.config.get("public_baseline_tag", "repokit-public-baseline")
+            shared_baseline = False
             
-            # Clear git index (remove all staged files from orphan)
-            self.run_git(["reset"], cwd=self.repo_root)
+            try:
+                # Check if baseline tag exists
+                self.run_git(["rev-parse", "--verify", baseline_tag], cwd=self.repo_root)
+                self.logger.info(f"Found baseline tag '{baseline_tag}', creating branch with shared history")
+                self.run_git(["checkout", "-b", branch_name, baseline_tag], cwd=self.repo_root)
+                shared_baseline = True
+            except subprocess.CalledProcessError:
+                # Baseline tag doesn't exist, create orphan branch for safety
+                self.logger.info(f"No baseline tag '{baseline_tag}' found, creating orphan branch for safety")
+                self.run_git(["checkout", "--orphan", branch_name], cwd=self.repo_root)
+                shared_baseline = False
+            
+            # Clear git index appropriately based on approach
+            if shared_baseline:
+                # Remove all files from index but keep working directory
+                self.run_git(["rm", "-r", "--cached", "."], cwd=self.repo_root, check=False)
+            else:
+                # Clear git index (remove all staged files from orphan)
+                self.run_git(["reset"], cwd=self.repo_root)
             
             # Get all files from working directory (not git index)
             all_files = self._get_working_directory_files()
@@ -1264,13 +1283,36 @@ exit 0
                     
                     self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
                     self.logger.info(f"Created clean public branch '{branch_name}' with {len(clean_files)} files")
+                    
+                    # Create baseline tag if this was an orphan branch (no shared baseline)
+                    # This enables future branches to share git history
+                    if not shared_baseline:
+                        try:
+                            baseline_tag = self.config.get("public_baseline_tag", "repokit-public-baseline")
+                            # Check if tag already exists
+                            tag_exists = False
+                            try:
+                                self.run_git(["rev-parse", "--verify", baseline_tag], cwd=self.repo_root)
+                                tag_exists = True
+                            except subprocess.CalledProcessError:
+                                pass
+                            
+                            if not tag_exists:
+                                self.run_git(["tag", "-a", baseline_tag, "-m", 
+                                            f"Public baseline for RepoKit branches\n\nThis tag marks the common ancestor for all public branches,\nensabling normal git merge operations while maintaining privacy."],
+                                           cwd=self.repo_root)
+                                self.logger.info(f"Created baseline tag '{baseline_tag}' for future shared history")
+                        except Exception as tag_error:
+                            self.logger.warning(f"Failed to create baseline tag: {tag_error}")
+                    
                 else:
                     self.logger.warning(f"No clean files to commit for branch '{branch_name}'")
             except Exception as e:
                 self.logger.error(f"Failed to commit clean branch '{branch_name}': {str(e)}")
                 raise
             
-            self.logger.info(f"Successfully created selective public branch '{branch_name}' with no privacy violations")
+            approach = "shared history" if shared_baseline else "orphan with new baseline"
+            self.logger.info(f"Successfully created selective public branch '{branch_name}' with no privacy violations ({approach})")
             
         except Exception as e:
             self.logger.error(f"Failed to create selective public branch '{branch_name}': {str(e)}")
