@@ -346,6 +346,18 @@ class RepoManager:
                         adoption_patterns.append(f"{dir_name}/")
                     adoption_patterns.append("")
                 
+                # Add sensitive file patterns to adoption patterns
+                sensitive_patterns = self.config.get("sensitive_patterns", [])
+                if sensitive_patterns:
+                    adoption_patterns.append("# Sensitive file patterns")
+                    if isinstance(sensitive_patterns, str):
+                        patterns = [p.strip() for p in sensitive_patterns.split(',')]
+                    else:
+                        patterns = sensitive_patterns
+                    for pattern in patterns:
+                        adoption_patterns.append(pattern)
+                    adoption_patterns.append("")
+                
                 # Append adoption patterns to the template-generated .gitignore
                 if adoption_patterns:
                     with open(gitignore_path, "a") as f:

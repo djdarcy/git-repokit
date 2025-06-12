@@ -1543,6 +1543,27 @@ def args_to_config(args: argparse.Namespace) -> Dict[str, Any]:
     if hasattr(args, "ai") and args.ai and args.ai != "none":
         cli_config["ai_integration"] = args.ai
 
+    # Handle backup configuration
+    if hasattr(args, "backup") and args.backup:
+        cli_config["backup"] = True
+    
+    if hasattr(args, "backup_location") and args.backup_location:
+        cli_config["backup_location"] = args.backup_location
+
+    # Handle migration strategy
+    if hasattr(args, "migration_strategy") and args.migration_strategy:
+        cli_config["migration_strategy"] = args.migration_strategy
+
+    # Handle remote publishing configuration  
+    if hasattr(args, "publish_to") and args.publish_to:
+        cli_config["publish_to"] = args.publish_to
+    
+    if hasattr(args, "repo_name") and args.repo_name:
+        cli_config["repo_name"] = args.repo_name
+        
+    if hasattr(args, "private_repo") and args.private_repo:
+        cli_config["private_repo"] = True
+
     # Handle branch directory mappings
     branch_directories = {}
 
@@ -2302,13 +2323,13 @@ def main() -> int:
             if hasattr(args, 'description') and args.description:
                 adopt_config["description"] = args.description
             
-            # Add adoption-specific sensitive patterns
+            # Add adoption-specific sensitive patterns (from CLI args)
             if hasattr(args, 'sensitive_patterns') and args.sensitive_patterns:
                 adopt_config["sensitive_patterns"] = [
                     pattern.strip() for pattern in args.sensitive_patterns.split(",")
                 ]
             
-            # Add adoption-specific private directories  
+            # Add adoption-specific private directories (from CLI args)
             if hasattr(args, 'private_dirs') and args.private_dirs:
                 adopt_config["private_dirs"] = [
                     dir_name.strip() for dir_name in args.private_dirs.split(",")
