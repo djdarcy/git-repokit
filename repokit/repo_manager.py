@@ -1205,8 +1205,9 @@ exit 0
         """
         Create public branch by selectively adding only non-sensitive files.
         
-        This approach ensures sensitive files never enter the git history of public branches,
-        preventing privacy violations that would be created by deletion commits.
+        This approach creates a branch with shared history (for merging) but ensures 
+        sensitive files are excluded from the initial commit on public branches.
+        The guardrails and hooks prevent future commits of private content.
         
         Args:
             branch_name: Name of the public branch to create
@@ -1227,11 +1228,11 @@ exit 0
                 # Delete existing branch to recreate cleanly
                 self.run_git(["branch", "-D", branch_name], cwd=self.repo_root, check=False)
             
-            # Create orphan branch (clean slate with no history)
-            self.run_git(["checkout", "--orphan", branch_name], cwd=self.repo_root)
+            # Create branch from source (maintains history for merging)
+            self.run_git(["checkout", "-b", branch_name], cwd=self.repo_root)
             
-            # Clear git index (remove all staged files from orphan)
-            self.run_git(["reset"], cwd=self.repo_root)
+            # Clear git index to rebuild with only clean files
+            self.run_git(["rm", "-r", "--cached", "."], cwd=self.repo_root)
             
             # Get all files from working directory (not git index)
             all_files = self._get_working_directory_files()
@@ -1260,7 +1261,7 @@ exit 0
             try:
                 staged_changes = self.run_git(["diff", "--cached", "--name-status"], cwd=self.repo_root)
                 if staged_changes.strip():
-                    commit_message = f"Initial {branch_name} branch setup\n\nCreated using selective file addition - no sensitive content included.\nFiles included: {len(clean_files)}"
+                    commit_message = f"Initial {branch_name} branch setup\n\nCreated with selective file addition to exclude sensitive content.\nFiles included: {len(clean_files)}\nExcluded: {excluded_count} sensitive files"
                     
                     self.run_git(["commit", "-m", commit_message], cwd=self.repo_root)
                     self.logger.info(f"Created clean public branch '{branch_name}' with {len(clean_files)} files")
@@ -1270,7 +1271,7 @@ exit 0
                 self.logger.error(f"Failed to commit clean branch '{branch_name}': {str(e)}")
                 raise
             
-            self.logger.info(f"Successfully created selective public branch '{branch_name}' with no privacy violations")
+            self.logger.info(f"Successfully created selective public branch '{branch_name}' with shared history")
             
         except Exception as e:
             self.logger.error(f"Failed to create selective public branch '{branch_name}': {str(e)}")
