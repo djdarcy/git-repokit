@@ -6,7 +6,16 @@
 [![License](https://img.shields.io/badge/license-MIT-orange)](https://github.com/djdarcy/git-repokit/blob/main/LICENSE)
 [![GitHub Discussions](https://img.shields.io/badge/discussions-Welcome-lightgrey)](https://github.com/djdarcy/git-repokit/discussions)
 
-RepoKit is an automation tool for creating standardized Git repositories with complex branching strategies, worktree-based workflows, and automated GitHub/GitLab deployment. It provides universal bootstrap capabilities for any project type - from empty directories to complex legacy codebases.
+**Transform chaotic code folders into professional, organized repositories that work seamlessly with GitHub and teams.**
+
+RepoKit automates the creation of standardized Git repositories with professional structure, worktree-based and branching workflows, and GitHub/Gitlab/etc deployment pipelines. Whether you're starting fresh or organizing existing code, RepoKit provides the structure and tools for professional development.
+
+## Why RepoKit?
+
+**Before**: Scattered files, no organization, deployment nightmares  
+**After**: Professional structure, team-ready, GitHub-ready, portfolio-worthy
+
+> **New to RepoKit?** Read [Why RepoKit Exists](docs/Why-RepoKit-Exists.md) for the complete picture.
 
 ## Features
 
@@ -239,11 +248,21 @@ python tests/run_tests.py --check
 
 ## 📚 Documentation
 
-- [Migration Guide](docs/Migration-Guide.md) - Universal bootstrap scenarios
-- [Workflow Guide](docs/Workflow-Guide.md) - Branch strategies explained
-- [Deployment Demo](docs/Deployment-Demo.md) - Step-by-step deployment examples
-- [Auth Guide](docs/Auth-Guide.md) - Authentication and credentials
-- [Test Framework](tests/README.md) - Comprehensive testing documentation
+### Getting Started
+- **[Documentation Guide](docs/README.md)** - Start here for navigation
+- **[Why RepoKit Exists](docs/Why-RepoKit-Exists.md)** - Understand the problem and solution
+- **[Adoption Guide](docs/Adoption-Guide.md)** - Step-by-step tutorials for existing projects
+
+### Reference Guides  
+- **[Recipes and How-Tos](docs/Recipes-And-Howtos.md)** - Copy-paste commands for common scenarios
+- **[Branch Strategies](docs/Branch-Strategies.md)** - Branching workflows explained
+- **[Migration Guide](docs/Migration-Guide.md)** - Universal bootstrap scenarios
+- **[Auth Guide](docs/Auth-Guide.md)** - Authentication and credentials
+- **[Workflow Guide](docs/Workflow-Guide.md)** - Development workflows
+- **[Deployment Demo](docs/Deployment-Demo.md)** - Step-by-step deployment examples
+- **[Test Framework](tests/README.md)** - Comprehensive testing documentation
+
+> **💡 Pro Tip**: Start with the [Documentation Guide](docs) for easier perusal and recommended reading order.
 
 ## 🛠️ Configuration
 

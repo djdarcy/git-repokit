@@ -2301,6 +2301,18 @@ def main() -> int:
             # Override description if specified
             if hasattr(args, 'description') and args.description:
                 adopt_config["description"] = args.description
+            
+            # Add adoption-specific sensitive patterns
+            if hasattr(args, 'sensitive_patterns') and args.sensitive_patterns:
+                adopt_config["sensitive_patterns"] = [
+                    pattern.strip() for pattern in args.sensitive_patterns.split(",")
+                ]
+            
+            # Add adoption-specific private directories  
+            if hasattr(args, 'private_dirs') and args.private_dirs:
+                adopt_config["private_dirs"] = [
+                    dir_name.strip() for dir_name in args.private_dirs.split(",")
+                ]
 
             # First analyze the project
             summary = analyze_project(dir_path, verbose=args.verbose)
