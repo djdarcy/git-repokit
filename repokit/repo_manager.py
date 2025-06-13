@@ -914,9 +914,28 @@ class RepoManager:
         private_branch_patterns += "|feature/*|feat/*|prototype/*|experiment/*|spike/*"
         
         # Generate private content patterns for template
-        # Convert BranchContext patterns to shell regex patterns
+        # Start with BranchContext patterns and add config-based patterns
+        all_patterns = set()
+        
+        # Add BranchContext patterns
+        all_patterns.update(branch_context.PRIVATE_PATTERNS)
+        all_patterns.update(branch_context.EXCLUDE_FROM_PUBLIC)
+        
+        # Add config-based sensitive patterns
+        config_sensitive_patterns = self.config.get('sensitive_patterns', [])
+        if config_sensitive_patterns:
+            all_patterns.update(config_sensitive_patterns)
+            self.logger.debug(f"Added {len(config_sensitive_patterns)} config-based sensitive patterns to hook")
+        
+        # Add config-based sensitive files  
+        config_sensitive_files = self.config.get('sensitive_files', [])
+        if config_sensitive_files:
+            all_patterns.update(config_sensitive_files)
+            self.logger.debug(f"Added {len(config_sensitive_files)} config-based sensitive files to hook")
+        
+        # Convert all patterns to shell regex patterns
         patterns = []
-        for pattern in branch_context.PRIVATE_PATTERNS:
+        for pattern in sorted(all_patterns):
             if pattern.endswith('/'):
                 # Directory patterns: match files inside the directory
                 patterns.append(f"^{pattern.rstrip('/')}/")
@@ -926,16 +945,6 @@ class RepoManager:
                 patterns.append(f"^{regex_pattern}")
             else:
                 # Exact file patterns
-                patterns.append(f"^{pattern}$")
-        
-        # Add exclude patterns from public branches
-        for pattern in branch_context.EXCLUDE_FROM_PUBLIC:
-            if pattern.endswith('/'):
-                patterns.append(f"^{pattern.rstrip('/')}/")
-            elif '*' in pattern:
-                regex_pattern = pattern.replace('*', '.*').replace('**/', '.*/')
-                patterns.append(f"^{regex_pattern}")
-            else:
                 patterns.append(f"^{pattern}$")
         
         # Join all patterns with | for shell regex
