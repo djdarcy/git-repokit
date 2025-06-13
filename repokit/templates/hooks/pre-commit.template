@@ -7,28 +7,47 @@ current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
 
 # Define private branches where private content is allowed (from BranchContext)
 case "$current_branch" in
-    {{private_branch_patterns}})
-        echo "Private content allowed on branch: $current_branch"
+    $private_branch_patterns)
+        echo "Checking for private content on branch: $current_branch"
         exit 0
         ;;
-    {{public_branch_patterns}})
-        echo "Checking for private content on public branch: $current_branch"
+    $public_branch_patterns)
+        echo "🔍 RepoKit Pre-Commit Check"
+        echo "   Branch: $current_branch (public)"
         ;;
     *)
-        echo "Checking for private content on branch: $current_branch"
+        echo "🔍 RepoKit Pre-Commit Check"
+        echo "   Branch: $current_branch (public)"
         ;;
 esac
 
 # Check for private content using BranchContext patterns
+has_private_content=0
 for file in $(git diff --cached --name-only); do
     # Check against all private content patterns from BranchContext
-    if echo "$file" | grep -q -E "{{private_content_regex}}"; then
-        echo "ERROR: Attempting to commit private content: $file"
-        echo "Private content should not be committed to public branches."
-        echo "These files should only exist in private branches."
-        exit 1
+    if echo "$file" | grep -q -E "$private_content_regex"; then
+        if [ $has_private_content -eq 0 ]; then
+            echo ""
+            echo "❌ COMMIT BLOCKED - Private Content Protection"
+            echo ""
+            echo "ERROR: Attempting to commit private files to public branch '$current_branch':"
+            echo ""
+            has_private_content=1
+        fi
+        echo "  - $file"
     fi
 done
+
+if [ $has_private_content -eq 1 ]; then
+    echo ""
+    echo "These files should only exist in private branches."
+    echo "To fix this:"
+    echo "  1. Switch to private branch: git checkout private"
+    echo "  2. Or unstage these files: git reset HEAD <file>"
+    echo "  3. Or remove from working directory: rm <file>"
+    echo ""
+    exit 1
+fi
 
 # Check for large files (>10MB)
 for file in $(git diff --cached --name-only); do
