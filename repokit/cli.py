@@ -24,6 +24,13 @@ from .directory_analyzer import (
     adopt_project,
 )
 
+# Set UTF-8 encoding for subprocess on Windows to prevent Unicode errors
+if sys.platform == 'win32':
+    import locale
+    # Force UTF-8 for subprocess communication
+    os.environ['PYTHONIOENCODING'] = 'utf-8'
+    os.environ['PYTHONUTF8'] = '1'
+
 
 def parse_arguments() -> argparse.Namespace:
     """
@@ -2064,7 +2071,9 @@ def main() -> int:
         logger.info(f"Running bootstrap script: {' '.join(bootstrap_args)}")
 
         try:
-            exit_code = subprocess.call(bootstrap_args)
+            # Use subprocess.run for better control over encoding
+            result = subprocess.run(bootstrap_args, encoding='utf-8', errors='replace')
+            exit_code = result.returncode
             return exit_code
         except Exception as e:
             logger.error(f"Error running bootstrap script: {str(e)}")

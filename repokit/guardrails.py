@@ -246,11 +246,12 @@ try:
                                     extract_cmd = ['tar', '-xf', '-']
                                     
                                     archive = subprocess.Popen(
-                                        archive_cmd, stdout=subprocess.PIPE
+                                        archive_cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE, text=False
                                     )
                                     subprocess.run(
                                         extract_cmd, stdin=archive.stdout,
-                                        check=True
+                                        check=True, stderr=subprocess.PIPE
                                     )
                                     archive.wait()
                                 else:
@@ -461,7 +462,7 @@ EOF
             for exclude in excludes:
                 try:
                     subprocess.run(['git', 'rm', '-rf', '--ignore-unmatch', exclude], 
-                                 check=True, capture_output=True)
+                                 check=True, capture_output=True, text=True)
                 except subprocess.CalledProcessError:
                     pass  # File might not exist
             
@@ -541,8 +542,8 @@ def restore_private_files() -> bool:
                     archive_cmd = ['git', 'archive', private_commit, '--format=tar', file_path]
                     extract_cmd = ['tar', '-xf', '-']
                     
-                    archive = subprocess.Popen(archive_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                    extract = subprocess.run(extract_cmd, stdin=archive.stdout, capture_output=True)
+                    archive = subprocess.Popen(archive_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=False)
+                    extract = subprocess.run(extract_cmd, stdin=archive.stdout, capture_output=True, text=False)
                     archive.wait()
                     
                     if archive.returncode == 0:
@@ -586,11 +587,11 @@ def sync_private_files() -> bool:
         
         # Stash current changes
         print("1. Stashing current changes...")
-        subprocess.run(['git', 'stash', 'push', '-m', 'repokit-sync-private'], check=True)
+        subprocess.run(['git', 'stash', 'push', '-m', 'repokit-sync-private'], check=True, capture_output=True, text=True)
         
         # Switch to private branch
         print("2. Switching to private branch...")
-        subprocess.run(['git', 'checkout', 'private'], check=True)
+        subprocess.run(['git', 'checkout', 'private'], check=True, capture_output=True, text=True)
         
         # Apply stash
         print("3. Applying changes...")
