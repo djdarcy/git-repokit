@@ -528,11 +528,13 @@ def copy_repokit_files(args, repo_path):
         if result.stdout.strip():
             # Changes exist, commit them
             logger.info("Committing changes to repository...")
-            subprocess.run(["git", "add", "."], cwd=local_repo, check=True)
+            subprocess.run(["git", "add", "."], cwd=local_repo, check=True, capture_output=True, text=True)
             subprocess.run(
                 ["git", "commit", "-m", "Add RepoKit source files"],
                 cwd=local_repo,
-                check=True
+                check=True,
+                capture_output=True,
+                text=True
             )
             logger.info("Changes committed to repository")
             

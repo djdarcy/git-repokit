@@ -75,8 +75,15 @@ class RepoManager:
             self.logger.debug(f"Running: {' '.join(cmd)} in {cwd}")
 
         try:
+            # Set environment for proper encoding on Windows
+            env = os.environ.copy()
+            if os.name == 'nt':  # Windows
+                env['LANG'] = 'C.UTF-8'
+                env['LC_ALL'] = 'C.UTF-8'
+            
             result = subprocess.run(
-                cmd, cwd=cwd, check=check, capture_output=True, text=True
+                cmd, cwd=cwd, check=check, capture_output=True, text=True,
+                encoding='utf-8', errors='replace', env=env
             )
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
@@ -201,7 +208,7 @@ class RepoManager:
         try:
             import re
             import subprocess
-            version_output = subprocess.check_output(['git', '--version'], text=True)
+            version_output = subprocess.check_output(['git', '--version'], text=True, encoding='utf-8', errors='replace')
             # Parse "git version 2.34.1" -> (2, 34, 1)
             match = re.search(r'git version (\d+)\.(\d+)\.(\d+)', version_output)
             if match:

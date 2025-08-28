@@ -14,7 +14,21 @@ Quick solutions for common RepoKit use cases. Copy, paste, and adapt these recip
 
 ## 🚀 Quick Start Recipes
 
+### Recipe: "Help me create a simple new project locally"
+
+```bash
+repokit create ./my-project \
+  --language python \
+  --branch-strategy simple \
+  --dir-profile standard \
+  --private-repo \
+  --user-name name \
+  --user-email id+user@users.noreply.github.com \
+  --ai claude
+```
+
 ### Recipe: "I just want to organize my code"
+
 ```bash
 # Test first
 repokit adopt ./my-project --dry-run
